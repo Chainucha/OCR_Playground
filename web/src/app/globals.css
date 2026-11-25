@@ -6,6 +6,7 @@
   --border: #e3e4e8;
   --border-strong: #c9cbd1;
   --accent: #1f5fd1;
+  --accent-surface: #e8effb;
   --on-accent: #ffffff;
   --danger: #b42318;
   --danger-surface: #fdecea;
@@ -20,6 +21,7 @@
     --border: #2c2e33;
     --border-strong: #3d4047;
     --accent: #6b9cf2;
+    --accent-surface: #1a2540;
     --on-accent: #0d1117;
     --danger: #f97066;
     --danger-surface: #3b1714;

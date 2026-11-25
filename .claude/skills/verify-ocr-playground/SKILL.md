@@ -5,7 +5,7 @@ description: Launch an isolated OCR Playground (Next.js web app with local Cogni
 
 # Verify OCR Playground
 
-OCR Playground has three user surfaces. The primary one is the web app: sign in, choose a page image, pick engines, run, and compare results. The other two are the `ocr` CLI and the engine HTTP API in `engines/`. The feature map in `features/README.md` lists what to verify and how. Read it before driving anything.
+OCR Playground has three user surfaces. The primary one is the web app: sign in, add page images or PDFs, pick engines, run, and compare results. The other two are the `ocr` CLI and the engine HTTP API in `engines/`. The feature map in `features/README.md` lists what to verify and how. Read it before driving anything.
 
 All commands run from the repo root. Paths use forward slashes, including on Windows.
 
@@ -62,7 +62,8 @@ Stable handles, all in the current code:
 | Sign-in submit | `button[type="submit"]` |
 | Signed-in marker | `main` (exists only after sign-in) |
 | Sign out | `header button` |
-| Page image input | `input[type=file]` |
+| Page file input (images, PDFs, multiple) | `input[type=file]` |
+| Page list | `ul[aria-label="Pages"]` (select button per page, `aria-current` on the selected one, then `Remove <label>`) |
 | Ground truth | `section[aria-label="Input"] textarea` |
 | Run button | `section[aria-label="Input"] > button` |
 | Result cards | `section[aria-label="Results"] article` (engine name in `h2`, stats in `header p`, text in `pre`) |
