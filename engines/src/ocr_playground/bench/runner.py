@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from ocr_playground.engines import Engine
-from ocr_playground.metrics import cer
+from ocr_playground.scoring import cer
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"}
 GROUND_TRUTH_SUFFIXES = (".gt.txt", ".gt.md")

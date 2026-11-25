@@ -6,8 +6,8 @@ Internal team playground for trying OCR models on the same Thai documents (invoi
 
 | Folder | What it is |
 |---|---|
-| `engines/` | Python package (`uv`). One adapter per OCR model behind one interface, plus a CLI (`ocr`) and an HTTP API the web app calls. |
-| `web/` | Next.js app, hosted on AWS Amplify (Gen 2). Invite-only Cognito sign-in. |
+| `engines/` | Python package (`uv`). Modules: `engines` (one adapter per OCR model behind one interface), `scoring`, `synth`, `bench`, the HTTP API the web app calls (`api`), and the `ocr` CLI. |
+| `web/` | Next.js app, hosted on AWS Amplify (Gen 2). Invite-only Cognito sign-in. Modules in `web/src/modules/`: `auth`, `documents`, `scoring`, `engines`, `playground`. |
 | `data/samples/` | Synthetic sample pages, each `<name>.png` with a `<name>.gt.txt` ground truth (and `<name>.meta.json` from `ocr synth`). |
 | `models/` | Downloaded model files (git-ignored). |
 | `scripts/` | `dev.py` (local dev environment) and `local_cognito.py` (the local sign-in it and the verification skill use). |
@@ -26,11 +26,11 @@ Each engine's dependencies are an optional extra, so you install only what you t
 
 The web page can also run OpenThai OCR-Text itself, with [onnxruntime-web](https://onnxruntime.ai/docs/tutorials/web/). It needs no Python and no engine API, and the image never leaves the browser. On first use the page downloads about 7 MB of models from Hugging Face, pinned to the commit the Python engine was checked against, and the WASM runtime from jsDelivr. Set `NEXT_PUBLIC_OPENTHAI_TEXT_URL` to serve the models from elsewhere.
 
-`web/src/lib/openthai/` ports the core of iApp's `runtime/line_engine.py` to TypeScript: detection, line crops, splitting lines at wide gaps, the second recognizer for loopless fonts, row order, and the line filter. Page rotation, deskew, column detection and floating-mark re-attachment are not ported. On 20 `ocr synth` pages (seed 7, mixed quality) its mean CER was 2.05% against 1.98% for the Python engine. On `data/samples/synthetic-invoice-001.png` its text is identical. It runs in a Web Worker (`worker.ts`), single-threaded, so a page takes about a second to read but the tab stays responsive.
+`web/src/modules/engines/openthai/` ports the core of iApp's `runtime/line_engine.py` to TypeScript: detection, line crops, splitting lines at wide gaps, the second recognizer for loopless fonts, row order, and the line filter. Page rotation, deskew, column detection and floating-mark re-attachment are not ported. On 20 `ocr synth` pages (seed 7, mixed quality) its mean CER was 2.05% against 1.98% for the Python engine. On `data/samples/synthetic-invoice-001.png` its text is identical. It runs in a Web Worker (`worker.ts`), single-threaded, so a page takes about a second to read but the tab stays responsive.
 
 ## Quick start (local)
 
-Needs Python via [uv](https://docs.astral.sh/uv/) and Node 20+.
+Needs Python via [uv](https://docs.astral.sh/uv/) and Node 22+.
 
 ### Dev environment (one command, no AWS)
 
@@ -79,6 +79,17 @@ npm run dev               # http://localhost:3000
 ```
 
 Sign-up is disabled. An admin adds users in the Cognito console (or `aws cognito-idp admin-create-user`).
+
+## Checks
+
+CI runs these on every pull request. Run them before you push:
+
+```bash
+cd web && npm run typecheck && npm run lint && npm test && npm run build
+cd engines && uv run lint-imports && uv run pytest
+```
+
+Both apps are split into modules with enforced boundaries: `web/eslint.config.mjs` for the web app, and `[tool.importlinter]` in `engines/pyproject.toml` for the engines. `CLAUDE.md` says which module owns what.
 
 ## Synthetic samples
 

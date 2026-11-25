@@ -3,7 +3,8 @@
 import { Authenticator, useAuthenticator } from "@aws-amplify/ui-react";
 import "@aws-amplify/ui-react/styles.css";
 import { Amplify } from "aws-amplify";
-import outputs from "../../amplify_outputs.json";
+// eslint-disable-next-line no-restricted-imports -- Amplify writes this file to the web root at build time
+import outputs from "../../../amplify_outputs.json";
 
 const localCognito = process.env.NEXT_PUBLIC_COGNITO_ENDPOINT;
 

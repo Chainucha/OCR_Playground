@@ -47,3 +47,4 @@ next-env.d.ts
 amplify_outputs*
 amplifyconfiguration*
 /.next-verify/
+!amplify_outputs.placeholder.json

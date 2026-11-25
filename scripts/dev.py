@@ -35,22 +35,9 @@ WEB_PORT, ENGINE_PORT, COGNITO_PORT = 3000, 8000, 9229
 WEB_URL = f"http://localhost:{WEB_PORT}"
 ENGINE_URL = f"http://127.0.0.1:{ENGINE_PORT}"
 
-# web/src/app/providers.tsx imports amplify_outputs.json, which `npx ampx sandbox` writes. Without a sandbox the
+# web/src/modules/auth/providers.tsx imports amplify_outputs.json, which `npx ampx sandbox` writes. Without a sandbox the
 # page signs in against local Cognito instead, and this file only has to exist.
-PLACEHOLDER_OUTPUTS = {
-    "version": "1.4",
-    "auth": {
-        "aws_region": "ap-southeast-1",
-        "user_pool_id": "ap-southeast-1_DEVPLACEHOLDER",
-        "user_pool_client_id": "devplaceholder",
-        "username_attributes": ["email"],
-        "standard_required_attributes": ["email"],
-        "user_verification_types": ["email"],
-        "password_policy": {"min_length": 8, "require_lowercase": True, "require_numbers": True,
-                            "require_symbols": True, "require_uppercase": True},
-        "unauthenticated_identities_enabled": False,
-    },
-}
+PLACEHOLDER_OUTPUTS = REPO / "web" / "amplify_outputs.placeholder.json"
 
 
 def uv() -> list[str]:
@@ -144,7 +131,7 @@ def main() -> None:
     prepare()
     DEV.mkdir(exist_ok=True)
     if not OUTPUTS.exists():  # gitignored; left in place so a verification instance can share it
-        OUTPUTS.write_text(json.dumps(PLACEHOLDER_OUTPUTS, indent=2), encoding="utf-8")
+        shutil.copyfile(PLACEHOLDER_OUTPUTS, OUTPUTS)
 
     stack = Stack()
     try:

@@ -1,6 +1,6 @@
 import pytest
 
-from ocr_playground.metrics import cer, normalize
+from ocr_playground.scoring import cer, normalize
 
 
 def test_identical_text_scores_zero():
