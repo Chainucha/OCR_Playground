@@ -4,8 +4,7 @@ from pathlib import Path
 import pytest
 
 from ocr_playground import engines as registry
-from ocr_playground.engines import EngineSpec, EngineUnavailable
-from ocr_playground.result import OcrResult
+from ocr_playground.engines import EngineSpec, EngineUnavailable, OcrResult
 
 
 @dataclass

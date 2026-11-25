@@ -7,10 +7,8 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from ocr_playground.engines import EngineSpec, get_engine
-from ocr_playground.result import OcrResult, Stage
-from ocr_playground import server
-from ocr_playground.server import app
+from ocr_playground.api import app, server
+from ocr_playground.engines import EngineSpec, OcrResult, Stage, get_engine
 from conftest import FakeEngine
 
 

@@ -1,10 +1,26 @@
+"""Engine registry. Adapters (openthai_text, openthai_markdown, typhoon) load lazily, on first use."""
+
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from ocr_playground.result import OcrResult
+from ocr_playground.engines.result import Line, OcrResult, Stage
+
+__all__ = [
+    "Engine",
+    "EngineSpec",
+    "EngineUnavailable",
+    "Line",
+    "ModelDownload",
+    "OcrResult",
+    "Stage",
+    "engine_names",
+    "engine_status",
+    "get_engine",
+    "model_downloads",
+]
 
 
 class Engine(Protocol):
@@ -22,6 +38,24 @@ class EngineSpec:
     name: str
     description: str
     load: Callable[[], Engine]
+
+
+@dataclass(frozen=True)
+class ModelDownload:
+    """Where `ocr download` fetches an engine's model files: a Hugging Face repo, minus `ignore` patterns."""
+
+    repo: str
+    ignore: list[str] | None = None
+
+
+def model_downloads() -> dict[str, ModelDownload]:
+    # Importing an adapter module is cheap: models load in from_env(), not at import.
+    from ocr_playground.engines import openthai_markdown, openthai_text
+
+    return {
+        openthai_text.NAME: ModelDownload(openthai_text.HF_REPO),
+        openthai_markdown.NAME: ModelDownload(openthai_markdown.HF_REPO, openthai_markdown.DOWNLOAD_IGNORE),
+    }
 
 
 def _openthai_text() -> Engine:

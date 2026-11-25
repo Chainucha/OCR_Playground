@@ -40,7 +40,11 @@ synth = ["numpy>=2.0,<3", "uharfbuzz>=0.40", "freetype-py>=2.4"]
 ocr = "ocr_playground.cli:app"
 
 [dependency-groups]
-dev = ["pytest>=8", "httpx>=0.27"]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+    "import-linter>=2.17",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -61,3 +65,52 @@ explicit = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# `uv run lint-imports` checks the module boundaries. Tests are outside the root package, so they may deep-import.
+[tool.importlinter]
+root_package = "ocr_playground"
+
+# Rule 1: a module imports only modules in layers below it. A new top-level module must be added here (exhaustive).
+[[tool.importlinter.contracts]]
+name = "Layers: cli, api > bench > engines, scoring, synth > config"
+type = "layers"
+containers = ["ocr_playground"]
+layers = ["cli : api", "bench", "engines : scoring : synth", "config"]
+exhaustive = true
+
+[[tool.importlinter.contracts]]
+name = "engines, scoring and synth are independent of each other"
+type = "independence"
+modules = ["ocr_playground.engines", "ocr_playground.scoring", "ocr_playground.synth"]
+
+# Rule 2: outside a module, import only its package root (`from ocr_playground.engines import get_engine`).
+# Whatever another module needs goes into that module's `__init__`.
+[[tool.importlinter.contracts]]
+name = "Only engines imports its own submodules"
+type = "protected"
+protected_modules = ["ocr_playground.engines.*"]
+allowed_importers = ["ocr_playground.engines"]
+
+[[tool.importlinter.contracts]]
+name = "Only scoring imports its own submodules"
+type = "protected"
+protected_modules = ["ocr_playground.scoring.*"]
+allowed_importers = ["ocr_playground.scoring"]
+
+[[tool.importlinter.contracts]]
+name = "Only synth imports its own submodules"
+type = "protected"
+protected_modules = ["ocr_playground.synth.*"]
+allowed_importers = ["ocr_playground.synth"]
+
+[[tool.importlinter.contracts]]
+name = "Only bench imports its own submodules"
+type = "protected"
+protected_modules = ["ocr_playground.bench.*"]
+allowed_importers = ["ocr_playground.bench"]
+
+[[tool.importlinter.contracts]]
+name = "Only api imports its own submodules"
+type = "protected"
+protected_modules = ["ocr_playground.api.*"]
+allowed_importers = ["ocr_playground.api"]

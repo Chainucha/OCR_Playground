@@ -6,9 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ocr_playground.config import MODELS_DIR, env, require_import
+from ocr_playground.config import MODELS_DIR
 from ocr_playground.engines import EngineUnavailable
-from ocr_playground.result import Line, OcrResult, Stage
+from ocr_playground.engines._env import env, require_import
+from ocr_playground.engines.result import Line, OcrResult, Stage
 
 NAME = "openthai-text"
 HF_REPO = "iapp/OpenThai2.1-OCR-Text-20261118"

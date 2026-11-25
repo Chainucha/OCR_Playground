@@ -8,9 +8,10 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from ocr_playground.config import MODELS_DIR, env, require_import
+from ocr_playground.config import MODELS_DIR
 from ocr_playground.engines import EngineUnavailable
-from ocr_playground.result import Line, OcrResult
+from ocr_playground.engines._env import env, require_import
+from ocr_playground.engines.result import Line, OcrResult
 
 NAME = "openthai-markdown"
 HF_REPO = "iapp/OpenThai2.1-OCR-Markdown-20261118"

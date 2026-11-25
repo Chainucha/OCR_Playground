@@ -1,7 +1,7 @@
 // Runs OpenThai OCR-Text in the browser with onnxruntime-web: nothing to install, and the image never leaves the device.
 // The models and the OCR live in a Web Worker (worker.ts), so the page stays responsive while a page is read.
 
-import type { EngineResult, EngineStatus } from "@/lib/ocr-api";
+import type { EngineResult, EngineStatus } from "../core/types";
 import type { OcrRequest, OcrResponse } from "./worker";
 
 export const BROWSER_ENGINE: EngineStatus = {

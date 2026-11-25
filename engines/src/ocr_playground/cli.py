@@ -76,14 +76,14 @@ def download(name: Annotated[str, typer.Argument(help="openthai-text or openthai
     from huggingface_hub import snapshot_download
 
     from ocr_playground.config import MODELS_DIR
-    from ocr_playground.engines import openthai_markdown, openthai_text
+    from ocr_playground.engines import model_downloads
 
-    repos = {"openthai-text": openthai_text.HF_REPO, "openthai-markdown": openthai_markdown.HF_REPO}
-    if name not in repos:
-        raise typer.BadParameter(f"Downloadable: {', '.join(repos)}")
-    ignore = openthai_markdown.DOWNLOAD_IGNORE if name == "openthai-markdown" else None
-    path = snapshot_download(repos[name], local_dir=MODELS_DIR / name, ignore_patterns=ignore)
-    typer.echo(f"Downloaded {repos[name]} to {path}")
+    downloads = model_downloads()
+    if name not in downloads:
+        raise typer.BadParameter(f"Downloadable: {', '.join(downloads)}")
+    source = downloads[name]
+    path = snapshot_download(source.repo, local_dir=MODELS_DIR / name, ignore_patterns=source.ignore)
+    typer.echo(f"Downloaded {source.repo} to {path}")
 
 
 @app.command()
@@ -123,7 +123,7 @@ def serve(
     import uvicorn
 
     src = Path(__file__).resolve().parent
-    uvicorn.run("ocr_playground.server:app", host=host, port=port, reload=reload, reload_dirs=[str(src)] if reload else None)
+    uvicorn.run("ocr_playground.api:app", host=host, port=port, reload=reload, reload_dirs=[str(src)] if reload else None)
 
 
 if __name__ == "__main__":
