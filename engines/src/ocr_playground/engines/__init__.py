@@ -1,3 +1,4 @@
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,6 +52,9 @@ REGISTRY: dict[str, EngineSpec] = {
 }
 
 _loaded: dict[str, Engine] = {}
+# One lock per engine: concurrent requests wait for a model that is loading instead of loading it twice.
+_locks: dict[str, threading.Lock] = {}
+_locks_guard = threading.Lock()
 
 
 def engine_names() -> list[str]:
@@ -60,8 +64,13 @@ def engine_names() -> list[str]:
 def get_engine(name: str) -> Engine:
     if name not in REGISTRY:
         raise KeyError(f"Unknown engine {name!r}. Known: {', '.join(REGISTRY)}")
-    if name not in _loaded:
-        _loaded[name] = REGISTRY[name].load()
+    if name in _loaded:
+        return _loaded[name]
+    with _locks_guard:
+        lock = _locks.setdefault(name, threading.Lock())
+    with lock:
+        if name not in _loaded:
+            _loaded[name] = REGISTRY[name].load()
     return _loaded[name]
 
 

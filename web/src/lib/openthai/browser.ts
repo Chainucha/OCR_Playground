@@ -9,6 +9,7 @@ export const BROWSER_ENGINE: EngineStatus = {
   description: "OpenThai OCR-Text running in this browser (ONNX, about 7 MB on first use)",
   available: true,
   reason: null,
+  runs: 0,
 };
 
 let worker: Worker | null = null;
@@ -42,5 +43,7 @@ export async function runInBrowser(file: File, groundTruth: string): Promise<Eng
     worker!.postMessage(request);
   });
   if (!r.ok) return { ok: false, engine, error: `${engine}: ${r.error}` };
-  return { ok: true, engine, format: "text", text: r.text, latency_ms: r.latency_ms, lines: r.lines, cer: r.cer };
+  return {
+    ok: true, engine, format: "text", text: r.text, latency_ms: r.latency_ms, lines: r.lines, cer: r.cer, cold: r.cold,
+  };
 }

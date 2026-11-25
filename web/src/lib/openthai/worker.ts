@@ -1,7 +1,7 @@
 // Web Worker that owns the ONNX sessions and runs readPage, so OCR never blocks the page's main thread.
 
 import { cer } from "@/lib/cer";
-import type { Line } from "@/lib/ocr-api";
+import { type Line, WARMUP_RUNS } from "@/lib/ocr-api";
 import { type ModelName, readPage } from "./ocr";
 
 // Pinned to the Hugging Face commit the Python engine was checked against, so iApp's updates can't change results
@@ -12,7 +12,7 @@ const MODEL_URL =
 
 export type OcrRequest = { id: number; file: File; groundTruth: string };
 export type OcrResponse = { id: number } & (
-  | { ok: true; text: string; latency_ms: number; lines: Line[]; cer: number | null }
+  | { ok: true; text: string; latency_ms: number; lines: Line[]; cer: number | null; cold: boolean }
   | { ok: false; error: string }
 );
 
@@ -20,6 +20,9 @@ type Ort = typeof import("onnxruntime-web/wasm");
 type Loaded = { ort: Ort; sessions: Record<ModelName, import("onnxruntime-web/wasm").InferenceSession>; chars: string[] };
 
 let loading: Promise<Loaded> | null = null;
+// Pages this worker has finished. The first WARMUP_RUNS read slow while the ONNX sessions and the browser's
+// WebAssembly and JavaScript compilers warm up.
+let runs = 0;
 
 async function fetchOk(path: string): Promise<Response> {
   const res = await fetch(`${MODEL_URL}/${path}`);
@@ -56,16 +59,20 @@ async function ocr({ file, groundTruth }: OcrRequest): Promise<Omit<Extract<OcrR
     throw err;
   });
   const img = await decode(file);
+  const cold = runs < WARMUP_RUNS;
   const start = performance.now();
   const page = await readPage(img.data, img.width, img.height, async (model, input, dims) => {
     const s = sessions[model];
     const out = (await s.run({ [s.inputNames[0]]: new ort.Tensor("float32", input, dims) }))[s.outputNames[0]];
     return { data: out.data as Float32Array, dims: out.dims };
   }, chars, true);
+  const latency_ms = performance.now() - start;
+  runs += 1;
   return {
     ok: true,
+    cold,
     text: page.text,
-    latency_ms: performance.now() - start,
+    latency_ms,
     lines: page.lines.map((l) => ({ text: l.text, confidence: l.confidence, box: l.box })),
     cer: groundTruth.trim() ? cer(groundTruth, page.text) : null,
   };

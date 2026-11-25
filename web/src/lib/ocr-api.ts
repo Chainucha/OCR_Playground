@@ -1,10 +1,15 @@
 export const OCR_API_URL = process.env.NEXT_PUBLIC_OCR_API_URL ?? "http://localhost:8000";
 
+/** Runs per engine that count as warm-up and read slow; matches WARMUP_RUNS in engines/src/ocr_playground/server.py. */
+export const WARMUP_RUNS = 2;
+
 export type EngineStatus = {
   name: string;
   description: string;
   available: boolean;
   reason: string | null;
+  /** Pages the engine has finished since it started, so the page knows how much warm-up is left. */
+  runs: number;
 };
 
 export type Line = {
@@ -22,6 +27,8 @@ export type EngineResult =
       latency_ms: number;
       lines: Line[];
       cer: number | null;
+      /** One of the engine's first WARMUP_RUNS runs since it started: includes warm-up, so slower than usual. */
+      cold: boolean;
     }
   | { ok: false; engine: string; error: string };
 
