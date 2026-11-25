@@ -65,7 +65,7 @@ Stable handles, all in the current code:
 | Page file input (images, PDFs, multiple) | `input[type=file]` (inside the dashed drop area, a `label`) |
 | Page list | `ul[aria-label="Pages"]`: per page a select button (`data-page`, `aria-current` on the selected one, label in its first `span`) and `Remove <label>`; `Remove all` above it |
 | Model picker | button named `N model(s)` (opens a popover of checkboxes) |
-| How to run | radios `One at a time` / `All at once` in the same popover |
+| How to run | toolbar radio group `How to run` with two segments, `One at a time` / `All at once`; ← / → move between pages anywhere else |
 | Warm-up note | `#getting-ready` (empty once every model is ready) |
 | Correct text (ground truth) | button `Add the correct text`, then `#correct-text-input` (belongs to the selected page) |
 | Read button | the toolbar button whose name starts `Read`, `Reading`, `Preparing` or `Getting` |
@@ -75,7 +75,7 @@ Stable handles, all in the current code:
 | Why Read is disabled | `#read-why` (`Add a page to start.` or `Choose at least one model.`) |
 | API unreachable notice | `main > p[role=status]` |
 
-The page shows friendly model names, not engine ids: `openthai-text-browser` is `OpenThai Quick · Private`, `openthai-text` is `OpenThai Quick` (mapping in `web/src/lib/models.ts`). Checkbox names start with the friendly name. Take `agent-browser snapshot` and click by ref (`agent-browser click @e17`), or `agent-browser find role button click --name "Read with 2 models"`.
+The page shows each model's name as its authors write it, not engine ids: `openthai-text-browser` is `OpenThai2.1-OCR-Text · in your browser`, `openthai-text` is `OpenThai2.1-OCR-Text` (mapping in `web/src/lib/models.ts`). Checkbox names start with that name. Take `agent-browser snapshot` and click by ref (`agent-browser click @e17`), or `agent-browser find role button click --name "Read with 2 models"`.
 
 For a worked sequence, see `features/run-ocr.md`. The CLI and API recipes are in `features/cli.md` and `features/engine-api.md`.
 

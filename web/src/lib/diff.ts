@@ -33,6 +33,30 @@ export function toPlainText(text: string): string {
     .trim();
 }
 
+/** One line of a model's text as shown. `heading` marks a line the model wrote as a Markdown or HTML heading. */
+export type Line = { heading: boolean; segments: Segment[] };
+
+const MD_HEADING = /^\s{0,3}#{1,6}\s+(.+)$/gm;
+const HTML_HEADING = /<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi;
+
+/** A model's text in lines, with its headings marked. Pass the diff's segments to keep the mistake marks. */
+export function toLines(text: string, segments: Segment[] = [{ kind: "same", text: toPlainText(text) }]): Line[] {
+  const headings = new Set(
+    [...text.matchAll(MD_HEADING), ...text.matchAll(HTML_HEADING)].map((m) => toPlainText(m[1])).filter(Boolean),
+  );
+  const lines: Segment[][] = [[]];
+  for (const s of segments) {
+    s.text.split("\n").forEach((part, k) => {
+      if (k > 0) lines.push([]);
+      if (part) lines[lines.length - 1].push({ kind: s.kind, text: part });
+    });
+  }
+  return lines.map((line) => {
+    const written = line.flatMap((s) => (s.kind === "missing" ? [] : [s.text])).join("").trim();
+    return { heading: headings.has(written), segments: line };
+  });
+}
+
 type Token = { word: string; after: string };
 
 const segmenter = new Intl.Segmenter("th", { granularity: "word" });
