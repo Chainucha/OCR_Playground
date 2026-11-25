@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from ocr_playground.engines import EngineSpec, get_engine
+from ocr_playground.result import OcrResult, Stage
 from ocr_playground import server
 from ocr_playground.server import app
 from conftest import FakeEngine
@@ -138,3 +139,20 @@ def test_parallel_false_runs_engines_one_after_another(fake_registry):
     response = _post(["fake-good", "fake-bad"], parallel="false")
     assert [r["ok"] for r in response.json()] == [True, True]
     assert events == ["start fake-good", "end fake-good", "start fake-bad", "end fake-bad"]
+
+
+def test_stages_cover_the_server_side_of_a_run(fake_registry):
+    plain, = _post(["fake-good"]).json()
+    assert [st["name"] for st in plain["stages"]] == ["Receive page", "Wait to start", "Engine"]
+    assert plain["stages"][-1]["ms"] == plain["latency_ms"]
+
+    class Staged(FakeEngine):
+        def run(self, image):
+            return OcrResult(engine=self.name, text=self.text, format="text", latency_ms=3.0,
+                             stages=[Stage("Find text lines", 1.0), Stage("Read text", 2.0)])
+
+    fake_registry["fake-bad"] = EngineSpec("fake-bad", "says where its time went", lambda: Staged("fake-bad", "x"))
+    scored, = _post(["fake-bad"], ground_truth="x").json()
+    assert [st["name"] for st in scored["stages"]] == [
+        "Receive page", "Wait to start", "Find text lines", "Read text", "Score accuracy",
+    ]

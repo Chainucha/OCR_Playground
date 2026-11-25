@@ -1,13 +1,18 @@
 // Runs one engine on one page, timed from the moment the request is sent to the moment the result arrives, and warms
 // engines up when the page opens so that the times shown are steady ones.
 
-import { type EngineResult, WARMUP_RUNS, runOcr } from "@/lib/ocr-api";
+import { type EngineResult, type Stage, WARMUP_RUNS, runOcr } from "@/lib/ocr-api";
 import { BROWSER_ENGINE, runInBrowser } from "@/lib/openthai/browser";
 
 export type Timed = {
   result: EngineResult;
   /** Request sent to result received: upload, queueing, the engine's own time, and the reply. */
   roundTripMs: number;
+  /**
+   * The whole round trip in order, without overlap: what the engine reported, after "Send and receive" for what it
+   * could not see (the upload, network and reply, or the hand-off to the browser worker and back).
+   */
+  stages: Stage[];
 };
 
 export async function runEngine(name: string, file: File, groundTruth: string): Promise<Timed> {
@@ -16,7 +21,12 @@ export async function runEngine(name: string, file: File, groundTruth: string): 
     ? runInBrowser(file, groundTruth)
     : runOcr(file, [name], groundTruth).then(([r]) => r)
   ).catch((err): EngineResult => ({ ok: false, engine: name, error: String(err) }));
-  return { result, roundTripMs: performance.now() - start };
+  const roundTripMs = performance.now() - start;
+  if (!result.ok) return { result, roundTripMs, stages: [] };
+  // An engine API without stages still reports its own time, so the breakdown keeps that much.
+  const reported = result.stages ?? [{ name: "Engine", ms: result.latency_ms }];
+  const seen = reported.reduce((sum, s) => sum + s.ms, 0);
+  return { result, roundTripMs, stages: [{ name: "Send and receive", ms: Math.max(0, roundTripMs - seen) }, ...reported] };
 }
 
 export type Readiness = { state: "warming" } | { state: "ready" } | { state: "failed"; error: string };

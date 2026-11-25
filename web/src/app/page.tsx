@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { type EngineStatus, OCR_API_URL, listEngines } from "@/lib/ocr-api";
+import { type EngineStatus, OCR_API_URL, type Stage, listEngines } from "@/lib/ocr-api";
 import { BROWSER_ENGINE } from "@/lib/openthai/browser";
 import { type Readiness, type Timed, runEngine, warmUp } from "@/lib/run-engine";
 import styles from "./page.module.css";
@@ -23,6 +23,38 @@ type Run = { mode: Mode; names: string[]; t0: number; startedAt: Record<string, 
 
 // The ticking clock can lag an engine's start by one tick, so clamp rather than show -0.0 s.
 const seconds = (ms: number, digits = 1) => (Math.max(0, ms) / 1000).toFixed(digits);
+
+/** A collapsed Breakdown: each stage of one run as a row, with its time and its share of the request-to-result time. */
+function StageBreakdown({ stages, total }: { stages: Stage[]; total: number }) {
+  const share = (ms: number) => (total > 0 ? (100 * ms) / total : 0);
+  return (
+    <details className={styles.breakdown}>
+      <summary>Breakdown · {seconds(total, 2)} s</summary>
+      <table className={styles.stages}>
+        <tbody>
+          {stages.map((s) => (
+            <tr key={s.name}>
+              <th scope="row">{s.name}</th>
+              <td className={styles.bar} aria-hidden="true">
+                <span style={{ width: `${share(s.ms)}%` }} />
+              </td>
+              <td>{seconds(s.ms, 2)} s</td>
+              <td>{Math.round(share(s.ms))}%</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th scope="row">Request to result</th>
+            <td />
+            <td>{seconds(total, 2)} s</td>
+            <td>100%</td>
+          </tr>
+        </tfoot>
+      </table>
+    </details>
+  );
+}
 
 export default function Playground() {
   const { email, signOut } = useSession();
@@ -108,18 +140,22 @@ export default function Playground() {
       const timed = await runEngine(name, file, groundTruth);
       if (live()) setResults((prev) => ({ ...prev, [name]: timed }));
     };
-    if (mode === "parallel") {
-      await Promise.all(names.map(one));
-    } else {
-      for (const name of names) {
-        if (!live()) return;
-        await one(name);
+    try {
+      if (mode === "parallel") {
+        await Promise.all(names.map(one));
+      } else {
+        for (const name of names) {
+          if (!live()) return;
+          await one(name);
+        }
       }
+      if (!live()) return;
+      const wallMs = performance.now() - t0;
+      setRun((r) => (r ? { ...r, wallMs } : r));
+    } finally {
+      // Whatever happens, a run never leaves the page stuck on "Running…".
+      if (live()) setRunning(false);
     }
-    if (!live()) return;
-    const wallMs = performance.now() - t0;
-    setRun((r) => (r ? { ...r, wallMs } : r));
-    setRunning(false);
   }
 
   const done = run ? run.names.map((name) => results[name]).filter((t): t is Timed => t !== undefined) : [];
@@ -237,10 +273,6 @@ export default function Playground() {
                         {r.cer !== null && <> · CER {(r.cer * 100).toFixed(1)}%</>}
                         {" · "}{r.format}
                       </p>
-                      <p className={styles.note}>
-                        Engine&apos;s own time {seconds(r.latency_ms, 2)} s. The rest is sending the page and getting
-                        the result back.
-                      </p>
                       {r.cold && (
                         <p className={styles.note}>Ran during the engine&apos;s warm-up, so it may read high.</p>
                       )}
@@ -250,6 +282,7 @@ export default function Playground() {
                     </>
                   )}
                 </header>
+                {r.ok && <StageBreakdown stages={timed.stages} total={timed.roundTripMs} />}
                 {r.ok ? <pre>{r.text}</pre> : <p className={styles.error}>{r.error}</p>}
               </article>
             );

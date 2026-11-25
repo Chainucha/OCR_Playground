@@ -18,6 +18,9 @@ export type Line = {
   box: number[][] | null;
 };
 
+/** One step of a run and how long it took. A result's stages don't overlap, so they add up to its time. */
+export type Stage = { name: string; ms: number };
+
 export type EngineResult =
   | {
       ok: true;
@@ -27,6 +30,11 @@ export type EngineResult =
       latency_ms: number;
       lines: Line[];
       cer: number | null;
+      /**
+       * Where the time went, in order: the server's or the browser worker's share of the run. Missing from engine
+       * APIs older than this page, which is deployed separately.
+       */
+      stages?: Stage[];
       /** One of the engine's first WARMUP_RUNS runs since it started: includes warm-up, so slower than usual. */
       cold: boolean;
     }
