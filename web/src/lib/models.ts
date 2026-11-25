@@ -12,7 +12,8 @@ const MODELS: Record<string, ModelInfo> = {
   "openthai-text-browser": {
     name: "OpenThai Quick · Private",
     goodFor: "Runs in your browser. The file stays on your computer.",
-    badge: "Private",
+    // The name already says Private; a lock icon marks it instead of a second "Private".
+    badge: null,
     private: true,
   },
   "openthai-text": {

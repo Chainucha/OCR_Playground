@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronDown, FileUp, Info, Loader2, Lock, Sparkles, TriangleAlert, X } from "lucide-react";
+import { Check, ChevronDown, FileUp, Info, Loader2, Lock, ScanText, TriangleAlert, X } from "lucide-react";
 import { type DragEvent, useEffect, useId, useReducer, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -179,6 +179,8 @@ export default function SideBySide() {
     const how = mode;
     const started = new Set<string>();
     setBatches(new Map());
+    // The correct text shows up as its own column in the results, so the box would only push them down.
+    setShowCorrect(false);
     try {
       for (;;) {
         const next = latestPages.current.find((p) => !started.has(p.id) && p.image.kind !== "failed");
@@ -217,11 +219,27 @@ export default function SideBySide() {
   const lowest = Math.min(...scores.map((s) => s.cer));
   const leaders = scores.filter((s) => s.cer === lowest);
   const best = scores.length > 1 && leaders.length === 1 ? leaders[0].engine : null;
-  const count = (status: Slot["status"]) => slots.filter((s) => s.status === status).length;
   const together = batch?.mode === "parallel" && slots.length > 1;
   const reference = batch?.reference ?? "";
   const waitingForEarlier = run.kind === "running" && page !== null && !run.started.has(page.id);
   const showResults = page !== null && (batch !== undefined || waitingForEarlier);
+  const hasCorrectText = !!page?.groundTruth.trim();
+  const blocker =
+    running || preparing
+      ? null
+      : readable.length === 0
+        ? "Add a page to start."
+        : selected.size === 0
+          ? "Choose at least one model."
+          : null;
+  // The page gets the widest column: it's the thing every reading is checked against.
+  const columns = [
+    page?.image.kind === "ready" && "minmax(320px,1.4fr)",
+    reference && "minmax(240px,1fr)",
+    ...slots.map(() => "minmax(260px,1fr)"),
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -235,7 +253,7 @@ export default function SideBySide() {
       )}
       <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-card px-4 py-2 md:px-6">
         <p className="flex items-center gap-2 text-base font-semibold">
-          <Sparkles aria-hidden className="size-5 text-primary" />
+          <ScanText aria-hidden className="size-5 text-primary" />
           OCR Playground
         </p>
         <div className="flex items-center gap-3 text-sm text-muted-foreground">
@@ -263,7 +281,7 @@ export default function SideBySide() {
           </p>
         )}
 
-        <Card className="flex min-w-0 flex-row flex-wrap items-center gap-4 p-4">
+        <Card className="flex min-w-0 flex-row flex-wrap items-center gap-3 p-4">
           <PageAdder hasPages={pages.length > 0} inputRef={fileInput} onFiles={addFiles} onWarm={importer.warm} />
           <ModelPicker
             engines={engines}
@@ -281,17 +299,29 @@ export default function SideBySide() {
             aria-controls="correct-text"
             onClick={() => setShowCorrect((v) => !v)}
           >
-            {page?.groundTruth.trim() ? "Correct text added" : "Add the correct text"}
+            {hasCorrectText && <Check aria-hidden className="text-success" />}
+            {hasCorrectText ? "Correct text added" : "Add the correct text"}
+            <ChevronDown
+              aria-hidden
+              className={`transition-transform motion-reduce:transition-none ${showCorrect ? "rotate-180" : ""}`}
+            />
           </Button>
-          <Button
-            size="lg"
-            className="ml-auto h-10 px-5 text-base hover:bg-primary-hover"
-            disabled={running || preparing || readable.length === 0 || selected.size === 0}
-            aria-describedby={preparing ? "getting-ready" : undefined}
-            onClick={read}
-          >
-            {readLabel()}
-          </Button>
+          <div className="flex w-full flex-wrap items-center justify-end gap-x-3 gap-y-2 sm:ml-auto sm:w-auto">
+            {blocker && (
+              <p id="read-why" className="text-sm text-muted-foreground">
+                {blocker}
+              </p>
+            )}
+            <Button
+              size="lg"
+              className="h-10 w-full px-5 text-base hover:bg-primary-hover sm:w-auto"
+              disabled={running || preparing || blocker !== null}
+              aria-describedby={preparing ? "getting-ready" : blocker ? "read-why" : undefined}
+              onClick={read}
+            >
+              {readLabel()}
+            </Button>
+          </div>
           <p id="getting-ready" role="status" className="w-full text-sm text-muted-foreground empty:sr-only">
             {preparing &&
               "Each model reads a practice page first, so the times you see are steady. This takes a few seconds."}
@@ -349,101 +379,97 @@ export default function SideBySide() {
         )}
 
         {showResults && page && (
-          <section id="results" aria-labelledby="results-h" aria-busy={running} className="flex flex-col gap-5">
-            <div>
-              <h2 id="results-h" className="text-xl font-semibold">
-                How each model did
-                {pages.length > 1 && <span className="font-normal text-muted-foreground"> on {page.label}</span>}
-              </h2>
-              {/* No ticking clock in here: a live region that changes every 100 ms would talk over everything. */}
-              <p role="status" className="text-sm text-muted-foreground">
-                {batch
-                  ? [
-                      count("done") && `${count("done")} finished`,
-                      count("reading") && `${count("reading")} reading`,
-                      count("waiting") && `${count("waiting")} waiting ${count("waiting") === 1 ? "its" : "their"} turn`,
-                      count("failed") && `${count("failed")} need${count("failed") === 1 ? "s" : ""} another try`,
-                      batch.totalMs !== null && totalLine(batch, done),
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")
-                  : "Waiting for the pages before it."}
-              </p>
+          <section id="results" aria-labelledby="results-h" aria-busy={running} className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+              <div className="mr-auto">
+                <h2 id="results-h" className="text-xl font-semibold">
+                  How each model did
+                  {pages.length > 1 && <span className="font-normal text-muted-foreground"> on {page.label}</span>}
+                </h2>
+                {/* No ticking clock in here: a live region that changes every 100 ms would talk over everything. */}
+                <p role="status" className="text-sm text-muted-foreground">
+                  {batch ? progressLine(batch, done) : "Waiting for the pages before it."}
+                </p>
+              </div>
+              {batch && reference && (
+                <div className="flex flex-col items-start gap-1.5 sm:items-end">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="highlight"
+                      checked={highlight}
+                      onCheckedChange={setHighlight}
+                      className="dark:data-unchecked:bg-input"
+                    />
+                    <label htmlFor="highlight" className="cursor-pointer text-sm">
+                      Highlight mistakes
+                    </label>
+                  </div>
+                  {highlight && (
+                    <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                      <span>
+                        <Missing>เพิ่ม</Missing> what the page says
+                      </span>
+                      <span>
+                        <Extra>เพิม</Extra> what the model wrote instead
+                      </span>
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             {batch && (
-              <>
-                <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3">
+              <div
+                tabIndex={0}
+                role="region"
+                aria-label="The page, the correct text, and what each model read. On wide screens with many models, scroll sideways."
+                className="overflow-x-auto rounded-xl"
+              >
+                {/* One column per source. On wider screens every column shares two rows (the scores, then the text),
+                    so each model's first line starts level with the others. */}
+                <div
+                  className="flex flex-col gap-3 md:grid md:grid-flow-col md:grid-rows-[auto_1fr] md:gap-x-3 md:gap-y-0"
+                  style={{ gridTemplateColumns: columns }}
+                >
+                  {page.image.kind === "ready" && (
+                    <Column
+                      head={
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                          <h3 className="font-semibold">The page</h3>
+                          <a
+                            href={page.image.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-sm text-primary underline underline-offset-4 hover:text-primary-hover"
+                          >
+                            Open full size
+                          </a>
+                        </div>
+                      }
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element -- a local object URL, nothing for next/image to optimise */}
+                      <img src={page.image.url} alt={`The page: ${page.label}`} className="w-full rounded border bg-white" />
+                    </Column>
+                  )}
+                  {reference && (
+                    <Column className="bg-muted" head={<h3 className="font-semibold">The correct text</h3>}>
+                      <p lang="th" className="text-[15px] leading-relaxed whitespace-pre-wrap">
+                        {reference}
+                      </p>
+                    </Column>
+                  )}
                   {slots.map((slot) => (
-                    <ScoreCard
+                    <Column
                       key={slot.engine}
-                      slot={slot}
-                      best={slot.engine === best}
-                      together={together}
-                      hasReference={!!reference}
-                    />
+                      busy={slot.status === "waiting" || slot.status === "reading"}
+                      className={slot.engine === best ? "ring-2 ring-success" : ""}
+                      head={<ModelHead slot={slot} best={slot.engine === best} together={together} hasReference={!!reference} />}
+                    >
+                      <ModelText slot={slot} highlight={highlight} />
+                    </Column>
                   ))}
                 </div>
-
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-                  <h2 className="mr-auto text-xl font-semibold">The text</h2>
-                  {reference && (
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        id="highlight"
-                        checked={highlight}
-                        onCheckedChange={setHighlight}
-                        className="dark:data-unchecked:bg-input"
-                      />
-                      <label htmlFor="highlight" className="cursor-pointer text-sm">
-                        Highlight mistakes
-                      </label>
-                    </div>
-                  )}
-                </div>
-                {highlight && reference && (
-                  <p className="-mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted-foreground">
-                    <span>
-                      <Missing>เพิ่ม</Missing> what the page says
-                    </span>
-                    <span>
-                      <Extra>เพิม</Extra> what the model wrote instead
-                    </span>
-                  </p>
-                )}
-
-                <div
-                  tabIndex={0}
-                  role="region"
-                  aria-label="The page and the text from each model. On small screens, scroll sideways."
-                  className="relative overflow-x-auto rounded-xl"
-                >
-                  <div className="grid auto-cols-[minmax(280px,1fr)] grid-flow-col gap-3">
-                    {page.image.kind === "ready" && (
-                      <Card className="gap-2 p-4">
-                        <h3 className="font-semibold">The page</h3>
-                        {/* eslint-disable-next-line @next/next/no-img-element -- a local object URL, nothing for next/image to optimise */}
-                        <img
-                          src={page.image.url}
-                          alt={`The page: ${page.label}`}
-                          className="w-full rounded border bg-white"
-                        />
-                      </Card>
-                    )}
-                    {reference && (
-                      <Card className="gap-2 bg-muted p-4">
-                        <h3 className="font-semibold">The correct text</h3>
-                        <p lang="th" className="text-[15px] leading-relaxed whitespace-pre-wrap">
-                          {reference}
-                        </p>
-                      </Card>
-                    )}
-                    {slots.map((slot) => (
-                      <TextColumn key={slot.engine} slot={slot} highlight={highlight} />
-                    ))}
-                  </div>
-                </div>
-              </>
+              </div>
             )}
           </section>
         )}
@@ -488,9 +514,13 @@ function PageAdder({
         setDragging(false);
         onFiles([...e.dataTransfer.files]);
       }}
-      className={`flex min-h-14 flex-1 basis-72 cursor-pointer items-center gap-3 rounded-lg border-2 border-dashed p-2 pr-4 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring ${
-        dragging ? "border-primary bg-accent" : "border-input"
-      }`}
+      // With no pages yet, adding one is the only thing to do, so the drop area takes the whole first row. It stays the
+      // same element as it shrinks, so the file picker keeps focus.
+      className={`flex cursor-pointer rounded-lg border-2 border-dashed focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring ${
+        hasPages
+          ? "min-h-14 flex-1 basis-72 items-center gap-3 p-2 pr-4"
+          : "min-h-56 basis-full flex-col items-center justify-center gap-3 p-6 text-center"
+      } ${dragging ? "border-primary bg-accent" : "border-input"}`}
     >
       <input
         ref={inputRef}
@@ -505,15 +535,21 @@ function PageAdder({
           onFiles(files);
         }}
       />
-      <FileUp aria-hidden className="size-6 shrink-0 text-primary" />
-      <span className="flex min-w-0 flex-col">
-        <span className="font-medium">
+      <FileUp aria-hidden className={`shrink-0 text-primary ${hasPages ? "size-6" : "size-8"}`} />
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className={`font-medium ${hasPages ? "" : "text-lg"}`}>
           {hasPages ? "Drag more pages here, or add files" : "Drag pages here, or choose files"}
         </span>
         <span className="text-sm text-muted-foreground">
           Photos, scans (PNG or JPG) or PDFs. Each PDF page becomes its own page.
         </span>
       </span>
+      {!hasPages && (
+        // Looks like a button so it's clear the area can be clicked; the label around it does the work.
+        <span aria-hidden className="mt-1 rounded-md border border-input px-4 py-2 text-sm font-medium">
+          Choose files
+        </span>
+      )}
     </label>
   );
 }
@@ -712,9 +748,23 @@ function accuracy(cer: number): string {
 /** The finished summary: how long the whole read took, and for all at once, what the separate times add up to. */
 function totalLine(batch: Batch, done: Extract<Slot, { status: "done" }>[]): string {
   const total = `${seconds(batch.totalMs ?? 0)} sec in total`;
-  if (batch.mode === "queue" || batch.slots.length < 2) return `one at a time, ${total}`;
+  if (batch.mode === "queue" || batch.slots.length < 2) return `One at a time, ${total}.`;
   const added = done.reduce((sum, d) => sum + d.ms, 0);
-  return `all at once, ${total} (the separate times add up to ${seconds(added)} sec)`;
+  return `All at once, ${total} (the separate times add up to ${seconds(added)} sec).`;
+}
+
+/** Where the read of one page stands, as sentences: "2 finished, 1 reading." then the total once all have answered. */
+function progressLine(batch: Batch, done: Extract<Slot, { status: "done" }>[]): string {
+  const count = (status: Slot["status"]) => batch.slots.filter((s) => s.status === status).length;
+  const [finished, reading, waiting, failed] = [count("done"), count("reading"), count("waiting"), count("failed")];
+  const parts = [
+    finished && `${finished} finished`,
+    reading && `${reading} reading`,
+    waiting && `${waiting} waiting ${waiting === 1 ? "its" : "their"} turn`,
+    failed && `${failed} need${failed === 1 ? "s" : ""} another try`,
+  ].filter(Boolean);
+  const now = `${parts.join(", ")}.`;
+  return batch.totalMs === null ? now : `${now} ${totalLine(batch, done)}`;
 }
 
 /** Seconds since `since`, ticking. Its own component, so the tick re-renders this text and not the whole page. */
@@ -771,7 +821,29 @@ function Note({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ScoreCard({
+/** One column of the results: a head (scores) and a body (text). From md up the two parts sit on rows shared by every
+ * column, so the bodies line up. */
+function Column({
+  head,
+  children,
+  busy,
+  className = "",
+}: {
+  head: React.ReactNode;
+  children: React.ReactNode;
+  busy?: boolean;
+  className?: string;
+}) {
+  return (
+    <Card aria-busy={busy || undefined} className={`gap-0 py-0 md:row-span-2 md:grid md:grid-rows-subgrid ${className}`}>
+      <div className="flex flex-col gap-2 p-4">{head}</div>
+      <div className="border-t p-4">{children}</div>
+    </Card>
+  );
+}
+
+/** A model's name and how it did. Mistakes lead: "2 mistakes" says more to most people than "99.0%". */
+function ModelHead({
   slot: run,
   best,
   together,
@@ -783,47 +855,38 @@ function ScoreCard({
   hasReference: boolean;
 }) {
   const info = modelInfo(run.engine);
-  const header = (
+  const title = (
     <div className="flex flex-wrap items-center gap-1.5">
-      <h3 className="mr-auto font-semibold">{info.name}</h3>
-      {best && (
-        <Badge className="bg-success-muted text-success-muted-foreground">Fewest mistakes</Badge>
-      )}
-      {info.badge && (
-        <Badge variant="outline" className="gap-1">
-          {info.private && <Lock aria-hidden className="size-3" />}
-          {info.badge}
-        </Badge>
-      )}
+      <h3 className="mr-auto flex items-center gap-1.5 font-semibold">
+        {info.private && <Lock aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />}
+        {info.name}
+      </h3>
+      {best && <Badge className="bg-success-muted text-success-muted-foreground">Fewest mistakes</Badge>}
+      {info.badge && <Badge variant="outline">{info.badge}</Badge>}
     </div>
   );
 
   if (run.status === "waiting" || run.status === "reading") {
     return (
-      <Card aria-busy className="gap-2 p-4">
-        {header}
+      <>
+        {title}
         <p className="text-sm text-muted-foreground">{info.goodFor}</p>
         {run.status === "waiting" ? (
           <p className="font-medium text-muted-foreground">Waiting for its turn</p>
         ) : (
-          <>
-            <p className="font-medium">
-              Reading… <Elapsed since={run.startedAt} />
-            </p>
-            <div aria-hidden className="h-2 overflow-hidden rounded bg-muted">
-              <div className="h-full w-1/3 animate-pulse rounded bg-primary motion-reduce:animate-none" />
-            </div>
-          </>
+          <p className="font-medium">
+            Reading… <Elapsed since={run.startedAt} />
+          </p>
         )}
-      </Card>
+      </>
     );
   }
 
   if (run.status === "failed") {
     return (
-      <Card className="gap-2 border-2 border-dashed border-warning-border p-4">
-        {header}
-        <p role="alert" className="flex gap-2 rounded-md bg-warning p-2.5 text-sm text-warning-foreground">
+      <>
+        {title}
+        <p role="alert" className="flex gap-2 rounded-md border border-dashed border-warning-border bg-warning p-2.5 text-sm text-warning-foreground">
           <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
           {explainError(run.engine, run.error)}
         </p>
@@ -831,77 +894,53 @@ function ScoreCard({
           <summary className="cursor-pointer">Technical details</summary>
           <p className="mt-1 font-mono text-xs break-all">{run.error}</p>
         </details>
-      </Card>
+      </>
     );
   }
 
   const { result, diff } = run;
-  const took = seconds(run.ms);
-  const notes = (
+  const took = `${seconds(run.ms)} sec`;
+  let headline: string;
+  let detail: string;
+  if (result.cer !== null && diff) {
+    headline = diff.mistakes === 0 ? "No mistakes" : plural(diff.mistakes, "mistake");
+    detail = `${accuracy(result.cer)} accurate, took ${took}`;
+  } else if (result.cer !== null) {
+    headline = `${accuracy(result.cer)} accurate`;
+    detail = `Took ${took}. The text is too long to mark each mistake.`;
+  } else {
+    headline = took;
+    detail = hasReference ? "" : "Add the correct text to count mistakes.";
+  }
+  return (
     <>
+      {title}
+      <div>
+        <p className="text-2xl leading-tight font-semibold tabular-nums">{headline}</p>
+        {detail && <p className="text-sm text-muted-foreground tabular-nums">{detail}</p>}
+      </div>
       {result.cold && <Note>The time may read high: the model was still warming up.</Note>}
       {together && <Note>The time may read high: other models were reading at the same time.</Note>}
       <TimeBreakdown stages={run.stages} total={run.ms} />
     </>
   );
-  return (
-    <Card className={`gap-2 p-4 ${best ? "border-2 border-success" : ""}`}>
-      {header}
-      <p className="text-sm text-muted-foreground">{info.goodFor}</p>
-      {result.cer !== null ? (
-        <>
-          <p className="text-3xl leading-tight font-bold">
-            {accuracy(result.cer)}
-            <span className="text-sm font-medium text-muted-foreground"> accurate</span>
-          </p>
-          <div aria-hidden className="h-2 overflow-hidden rounded bg-muted">
-            <div
-              className={`h-full rounded ${best ? "bg-success" : "bg-primary"}`}
-              style={{ width: `${Math.max(0, 1 - result.cer) * 100}%` }}
-            />
-          </div>
-          <p className="text-sm">
-            {diff
-              ? diff.mistakes === 0
-                ? "No mistakes"
-                : `${diff.mistakes} mistake${diff.mistakes === 1 ? "" : "s"}`
-              : "Too long to list mistakes"}{" "}
-            · took {took} sec
-          </p>
-        </>
-      ) : (
-        <p className="text-sm">
-          Took {took} sec.{" "}
-          {!hasReference && <span className="text-muted-foreground">Add the correct text to see accuracy.</span>}
-        </p>
-      )}
-      {notes}
-    </Card>
-  );
 }
 
-function TextColumn({ slot: run, highlight }: { slot: Slot; highlight: boolean }) {
-  const info = modelInfo(run.engine);
+function ModelText({ slot: run, highlight }: { slot: Slot; highlight: boolean }) {
   return (
-    <Card className="gap-2 p-4">
-      <h3 className="font-semibold">
-        {info.name}
-        {run.status === "done" && run.diff && (
-          <span className="text-sm font-normal text-muted-foreground">
-            {" "}
-            · {run.diff.mistakes} mistake{run.diff.mistakes === 1 ? "" : "s"}
-          </span>
-        )}
-      </h3>
-      {run.status === "reading" && (
-        <div aria-hidden className="flex flex-col gap-3 pt-1">
+    <>
+      {(run.status === "reading" || run.status === "waiting") && (
+        <div aria-hidden className={`flex flex-col gap-3 pt-1 ${run.status === "waiting" ? "opacity-40" : ""}`}>
           {[80, 60, 90, 70, 55].map((w) => (
-            <div key={w} className="h-3.5 animate-pulse rounded bg-muted motion-reduce:animate-none" style={{ width: `${w}%` }} />
+            <div
+              key={w}
+              className={`h-3.5 rounded bg-muted ${run.status === "reading" ? "animate-pulse motion-reduce:animate-none" : ""}`}
+              style={{ width: `${w}%` }}
+            />
           ))}
         </div>
       )}
-      {run.status === "waiting" && <p className="text-sm text-muted-foreground">Waiting for its turn.</p>}
-      {run.status === "failed" && <p className="text-sm text-muted-foreground">No text. See the card above.</p>}
+      {run.status === "failed" && <p className="text-sm text-muted-foreground">No text from this model.</p>}
       {run.status === "done" && (
         <p lang="th" className="text-[15px] leading-relaxed whitespace-pre-wrap">
           {highlight && run.diff
@@ -917,7 +956,7 @@ function TextColumn({ slot: run, highlight }: { slot: Slot; highlight: boolean }
             : toPlainText(run.result.text)}
         </p>
       )}
-    </Card>
+    </>
   );
 }
 

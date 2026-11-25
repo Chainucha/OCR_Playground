@@ -70,9 +70,9 @@ Stable handles, all in the current code:
 | Correct text (ground truth) | button `Add the correct text`, then `#correct-text-input` (belongs to the selected page) |
 | Read button | the toolbar button whose name starts `Read`, `Reading`, `Preparing` or `Getting` |
 | Results | `#results` for the selected page; progress line `#results [role=status]` |
-| Score cards | `#results [data-slot=card]` outside `[role=region]` (model name in `h3`) |
-| Text columns | `[role=region] [data-slot=card]`: `The page` (image), `The correct text`, then one per model; mistakes are `del` (page says) and `ins` (model wrote) |
-| A model failed | `#results [role=alert]` in its score card |
+| Result columns | `[role=region] [data-slot=card]`: `The page` (image, `Open full size` link), `The correct text`, then one per model. Each is a head (`h3` name; for a model also its score, notes and `Where the time went`) then the text (`> div:last-child`). Mistakes are `del` (page says) and `ins` (model wrote) |
+| A model failed | `#results [role=alert]` in its column head |
+| Why Read is disabled | `#read-why` (`Add a page to start.` or `Choose at least one model.`) |
 | API unreachable notice | `main > p[role=status]` |
 
 The page shows friendly model names, not engine ids: `openthai-text-browser` is `OpenThai Quick · Private`, `openthai-text` is `OpenThai Quick` (mapping in `web/src/lib/models.ts`). Checkbox names start with the friendly name. Take `agent-browser snapshot` and click by ref (`agent-browser click @e17`), or `agent-browser find role button click --name "Read with 2 models"`.
