@@ -63,12 +63,18 @@ Stable handles, all in the current code:
 | Signed-in marker | `main` (exists only after sign-in) |
 | Sign out | `header button` |
 | Page image input | `input[type=file]` |
-| Ground truth | `section[aria-label="Input"] textarea` |
-| Run button | `section[aria-label="Input"] > button` |
-| Result cards | `section[aria-label="Results"] article` (engine name in `h2`, stats in `header p`, text in `pre`) |
-| API error banner | `p[role=alert]` |
+| Model picker | button named `N model(s)` (opens a popover of checkboxes) |
+| How to run | radios `One at a time` / `All at once` in the same popover |
+| Warm-up note | `#getting-ready` (empty once every model is ready) |
+| Correct text (ground truth) | button `Add the correct text`, then `#correct-text-input` |
+| Read button | button whose name starts `Read with` |
+| Results | `#results`; progress line `#results [role=status]` |
+| Score cards | `#results [data-slot=card]` outside `[role=region]` (model name in `h3`) |
+| Text columns | `[role=region] [data-slot=card]`; mistakes are `del` (page says) and `ins` (model wrote) |
+| A model failed | `#results [role=alert]` in its score card |
+| API unreachable notice | `main > p[role=status]` |
 
-Engine checkboxes have accessible names that start with the engine name (`openthai-text …`). Take `agent-browser snapshot` and click by ref (`agent-browser click @e17`).
+The page shows friendly model names, not engine ids: `openthai-text-browser` is `OpenThai Quick · Private`, `openthai-text` is `OpenThai Quick` (mapping in `web/src/lib/models.ts`). Checkbox names start with the friendly name. Take `agent-browser snapshot` and click by ref (`agent-browser click @e17`), or `agent-browser find role button click --name "Read with 2 models"`.
 
 For a worked sequence, see `features/run-ocr.md`. The CLI and API recipes are in `features/cli.md` and `features/engine-api.md`.
 

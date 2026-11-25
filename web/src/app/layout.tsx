@@ -4,7 +4,7 @@ import "./globals.css";
 import { Providers } from "./providers";
 
 const notoSansThai = Noto_Sans_Thai({
-  variable: "--font-sans",
+  variable: "--font-noto-sans-thai",
   subsets: ["thai", "latin"],
 });
 
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="th" className={notoSansThai.variable}>
+    <html lang="en" className={`dark ${notoSansThai.variable}`}>
       <body>
         <Providers>{children}</Providers>
       </body>
