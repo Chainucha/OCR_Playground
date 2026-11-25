@@ -611,7 +611,10 @@ function PageStrip({
           Remove all
         </Button>
         {pages.length > 1 && (
-          <span className="ml-auto text-sm text-muted-foreground">Press ← or → to go to the previous or next page</span>
+          // Phones have no arrow keys, and the hint would squeeze the page count onto two lines.
+          <span className="ml-auto hidden text-sm text-muted-foreground sm:inline">
+            Press ← or → to go to the previous or next page
+          </span>
         )}
       </div>
       <ul ref={listRef} aria-label="Pages" className="flex gap-2 overflow-x-auto pb-1">
