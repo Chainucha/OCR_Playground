@@ -1,4 +1,4 @@
-// The names people see. Engine ids stay in the API; nobody outside the dev team should have to read them.
+// The names people see: each model's name as its authors write it. Engine ids stay in the API.
 
 export type ModelInfo = {
   name: string;
@@ -10,25 +10,25 @@ export type ModelInfo = {
 
 const MODELS: Record<string, ModelInfo> = {
   "openthai-text-browser": {
-    name: "OpenThai Quick · Private",
+    name: "OpenThai2.1-OCR-Text · in your browser",
     goodFor: "Runs in your browser. The file stays on your computer.",
     badge: "Private",
     private: true,
   },
   "openthai-text": {
-    name: "OpenThai Quick",
+    name: "OpenThai2.1-OCR-Text",
     goodFor: "Plain text, read on our server.",
     badge: null,
     private: false,
   },
   "openthai-markdown": {
-    name: "OpenThai Layout",
+    name: "OpenThai2.1-OCR-Markdown",
     goodFor: "Keeps tables and headings.",
     badge: "Keeps tables",
     private: false,
   },
   typhoon: {
-    name: "Typhoon",
+    name: "Typhoon OCR",
     goodFor: "Keeps tables and headings. Slower.",
     badge: "Keeps tables",
     private: false,

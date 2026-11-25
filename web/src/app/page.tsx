@@ -1,16 +1,16 @@
 "use client";
 
 import { Check, ChevronDown, FileUp, Info, Loader2, Lock, Sparkles, TriangleAlert, X } from "lucide-react";
-import { type DragEvent, useEffect, useId, useReducer, useRef, useState } from "react";
+import { RadioGroup } from "radix-ui";
+import { type DragEvent, Fragment, useEffect, useId, useReducer, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { type Diff, diffWords, toPlainText } from "@/lib/diff";
+import { type Diff, diffWords, toLines } from "@/lib/diff";
 import { explainError, modelInfo } from "@/lib/models";
 import { type EngineResult, type EngineStatus, type Stage, listEngines } from "@/lib/ocr-api";
 import { BROWSER_ENGINE } from "@/lib/openthai/browser";
@@ -38,6 +38,10 @@ type Batch = { mode: Mode; reference: string; slots: Slot[]; totalMs: number | n
  * page is still being prepared. */
 type Run = { kind: "idle" } | { kind: "running"; started: ReadonlySet<string>; reading: string | null };
 
+/** Places where left and right arrows already do something: typing, the mode choice, the sideways-scrolling text, the
+ * models popover. */
+const ARROW_KEY_OWNERS = 'input, textarea, select, [contenteditable="true"], [role="radiogroup"], [role="region"], [role="dialog"]';
+
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 // A ticking clock can lag a start by one tick, so clamp rather than show -0.0.
 const seconds = (ms: number, digits = 1) => (Math.max(0, ms) / 1000).toFixed(digits);
@@ -57,6 +61,7 @@ export default function SideBySide() {
   const [notices, setNotices] = useState<string[]>([]);
   const [showCorrect, setShowCorrect] = useState(false);
   const [highlight, setHighlight] = useState(true);
+  const [showTimes, setShowTimes] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const pageList = useRef<HTMLUListElement>(null);
   // The read loop takes the page list from here, and sleeps on `wake` until the list next changes.
@@ -104,6 +109,25 @@ export default function SideBySide() {
       window.removeEventListener("drop", keep);
     };
   }, []);
+
+  // Left and right arrows move to the previous or next page, unless the focused control uses them itself.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+      if (!step || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      if ((e.target as Element).closest(ARROW_KEY_OWNERS)) return;
+      const i = pages.findIndex((p) => p.id === selectedId);
+      const next = pages[i + step];
+      if (i < 0 || !next) return;
+      e.preventDefault();
+      setSelectedId(next.id);
+      const button = pageList.current?.querySelector<HTMLElement>(`[data-page="${next.id}"]`);
+      if (pageList.current?.contains(document.activeElement)) button?.focus();
+      else button?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pages, selectedId]);
 
   function addFiles(files: File[]) {
     if (files.length === 0) return;
@@ -250,7 +274,7 @@ export default function SideBySide() {
 
       <main className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col gap-5 px-4 py-6 md:px-6">
         <div>
-          <h1 className="text-2xl font-semibold">Compare OCR models</h1>
+          <h1 className="text-2xl font-semibold text-primary">Compare OCR models</h1>
           <p className="text-muted-foreground">
             Add pages, choose the models, and see what each one reads, side by side.
           </p>
@@ -259,7 +283,7 @@ export default function SideBySide() {
         {serverDown && (
           <p role="status" className="flex gap-2 rounded-lg border-2 border-dashed border-warning-border bg-warning p-3 text-sm text-warning-foreground">
             <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
-            We can&apos;t reach the server that runs most models, so only OpenThai Quick · Private is available right now.
+            We can&apos;t reach the server that runs most models, so only OpenThai2.1-OCR-Text in your browser is available right now.
           </p>
         )}
 
@@ -270,10 +294,8 @@ export default function SideBySide() {
             readiness={readiness}
             selected={selected}
             onToggle={toggle}
-            mode={mode}
-            onMode={setMode}
-            locked={running}
           />
+          <ModeToggle mode={mode} onMode={setMode} locked={running} />
           <Button
             variant="outline"
             size="lg"
@@ -351,7 +373,7 @@ export default function SideBySide() {
         {showResults && page && (
           <section id="results" aria-labelledby="results-h" aria-busy={running} className="flex flex-col gap-5">
             <div>
-              <h2 id="results-h" className="text-xl font-semibold">
+              <h2 id="results-h" className="text-xl font-semibold text-primary">
                 How each model did
                 {pages.length > 1 && <span className="font-normal text-muted-foreground"> on {page.label}</span>}
               </h2>
@@ -381,12 +403,14 @@ export default function SideBySide() {
                       best={slot.engine === best}
                       together={together}
                       hasReference={!!reference}
+                      showTimes={showTimes}
+                      onShowTimes={setShowTimes}
                     />
                   ))}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-                  <h2 className="mr-auto text-xl font-semibold">The text</h2>
+                  <h2 className="mr-auto text-xl font-semibold text-primary">The text</h2>
                   {reference && (
                     <div className="flex items-center gap-2">
                       <Switch
@@ -421,7 +445,7 @@ export default function SideBySide() {
                   <div className="grid auto-cols-[minmax(280px,1fr)] grid-flow-col gap-3">
                     {page.image.kind === "ready" && (
                       <Card className="gap-2 p-4">
-                        <h3 className="font-semibold">The page</h3>
+                        <h3 className="font-semibold text-primary">The page</h3>
                         {/* eslint-disable-next-line @next/next/no-img-element -- a local object URL, nothing for next/image to optimise */}
                         <img
                           src={page.image.url}
@@ -432,7 +456,7 @@ export default function SideBySide() {
                     )}
                     {reference && (
                       <Card className="gap-2 bg-muted p-4">
-                        <h3 className="font-semibold">The correct text</h3>
+                        <h3 className="font-semibold text-primary">The correct text</h3>
                         <p lang="th" className="text-[15px] leading-relaxed whitespace-pre-wrap">
                           {reference}
                         </p>
@@ -539,10 +563,13 @@ function PageStrip({
   return (
     <div className="flex w-full min-w-0 flex-col gap-2">
       <div className="flex items-center gap-3">
-        <h2 className="text-sm font-semibold">{plural(pages.length, "page")}</h2>
+        <h2 className="text-sm font-semibold text-primary">{plural(pages.length, "page")}</h2>
         <Button variant="link" className="h-8 px-1 text-sm" onClick={onRemoveAll}>
           Remove all
         </Button>
+        {pages.length > 1 && (
+          <span className="ml-auto text-sm text-muted-foreground">Press ← or → to go to the previous or next page</span>
+        )}
       </div>
       <ul ref={listRef} aria-label="Pages" className="flex gap-2 overflow-x-auto pb-1">
         {pages.map((p) => {
@@ -624,17 +651,11 @@ function ModelPicker({
   readiness,
   selected,
   onToggle,
-  mode,
-  onMode,
-  locked,
 }: {
   engines: EngineStatus[];
   readiness: Record<string, Readiness>;
   selected: ReadonlySet<string>;
   onToggle: (name: string) => void;
-  mode: Mode;
-  onMode: (m: Mode) => void;
-  locked: boolean;
 }) {
   function about(e: EngineStatus, goodFor: string): string {
     if (!e.available) return "Not set up on this server yet.";
@@ -677,29 +698,38 @@ function ModelPicker({
             );
           })}
         </fieldset>
-        <fieldset disabled={locked} className="flex flex-col gap-1 border-t pt-2 disabled:opacity-60">
-          <legend className="px-2 py-1 text-sm font-semibold">How to run them</legend>
-          <RadioGroup value={mode} onValueChange={(v) => onMode(v as Mode)} disabled={locked} className="gap-1">
-            {MODES.map((m) => (
-              <div key={m.value} className="flex gap-3 rounded-md p-2 hover:bg-muted">
-                <RadioGroupItem
-                  id={`mode-${m.value}`}
-                  value={m.value}
-                  className="mt-0.5 border-input"
-                  aria-describedby={`mode-${m.value}-about`}
-                />
-                <label htmlFor={`mode-${m.value}`} className="cursor-pointer">
-                  <span className="block font-medium">{m.label}</span>
-                  <span id={`mode-${m.value}-about`} className="block text-sm text-muted-foreground">
-                    {m.hint}
-                  </span>
-                </label>
-              </div>
-            ))}
-          </RadioGroup>
-        </fieldset>
       </PopoverContent>
     </Popover>
+  );
+}
+
+/** Two choices side by side. Each one's hint shows on hover and is read out as its description. */
+function ModeToggle({ mode, onMode, locked }: { mode: Mode; onMode: (m: Mode) => void; locked: boolean }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span id="mode-label" className="text-sm font-medium">
+        How to run
+      </span>
+      <RadioGroup.Root
+        aria-labelledby="mode-label"
+        value={mode}
+        onValueChange={(v) => onMode(v as Mode)}
+        disabled={locked}
+        orientation="horizontal"
+        className="flex rounded-lg border border-input p-0.5 data-disabled:opacity-60"
+      >
+        {MODES.map((m) => (
+          <RadioGroup.Item
+            key={m.value}
+            value={m.value}
+            title={m.hint}
+            className="h-9 rounded-md px-3 text-sm font-medium text-muted-foreground outline-ring not-aria-checked:hover:bg-muted not-aria-checked:hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed aria-checked:bg-accent aria-checked:text-foreground aria-checked:ring-1 aria-checked:ring-primary"
+          >
+            {m.label}
+          </RadioGroup.Item>
+        ))}
+      </RadioGroup.Root>
+    </div>
   );
 }
 
@@ -727,11 +757,22 @@ function Elapsed({ since }: { since: number }) {
   return <span className="tabular-nums">{seconds(now - since)} sec</span>;
 }
 
-/** Collapsed by default: each step of one read, in order and without overlap, so the rows add up to the total. */
-function TimeBreakdown({ stages, total }: { stages: Stage[]; total: number }) {
+/** Each step of one read, in order and without overlap, so the rows add up to the total. Every card opens and closes
+ * together, so the steps can be compared across models. */
+function TimeBreakdown({
+  stages,
+  total,
+  open,
+  onOpen,
+}: {
+  stages: Stage[];
+  total: number;
+  open: boolean;
+  onOpen: (open: boolean) => void;
+}) {
   const share = (ms: number) => (total > 0 ? (100 * ms) / total : 0);
   return (
-    <details className="text-sm">
+    <details className="text-sm" open={open} onToggle={(e) => onOpen(e.currentTarget.open)}>
       <summary className="cursor-pointer text-muted-foreground">Where the time went</summary>
       <table className="mt-2 w-full tabular-nums">
         <tbody>
@@ -776,16 +817,20 @@ function ScoreCard({
   best,
   together,
   hasReference,
+  showTimes,
+  onShowTimes,
 }: {
   slot: Slot;
   best: boolean;
   together: boolean;
   hasReference: boolean;
+  showTimes: boolean;
+  onShowTimes: (open: boolean) => void;
 }) {
   const info = modelInfo(run.engine);
   const header = (
     <div className="flex flex-wrap items-center gap-1.5">
-      <h3 className="mr-auto font-semibold">{info.name}</h3>
+      <h3 className="mr-auto font-semibold wrap-anywhere text-primary">{info.name}</h3>
       {best && (
         <Badge className="bg-success-muted text-success-muted-foreground">Fewest mistakes</Badge>
       )}
@@ -841,7 +886,7 @@ function ScoreCard({
     <>
       {result.cold && <Note>The time may read high: the model was still warming up.</Note>}
       {together && <Note>The time may read high: other models were reading at the same time.</Note>}
-      <TimeBreakdown stages={run.stages} total={run.ms} />
+      <TimeBreakdown stages={run.stages} total={run.ms} open={showTimes} onOpen={onShowTimes} />
     </>
   );
   return (
@@ -884,7 +929,7 @@ function TextColumn({ slot: run, highlight }: { slot: Slot; highlight: boolean }
   const info = modelInfo(run.engine);
   return (
     <Card className="gap-2 p-4">
-      <h3 className="font-semibold">
+      <h3 className="font-semibold wrap-anywhere text-primary">
         {info.name}
         {run.status === "done" && run.diff && (
           <span className="text-sm font-normal text-muted-foreground">
@@ -904,17 +949,22 @@ function TextColumn({ slot: run, highlight }: { slot: Slot; highlight: boolean }
       {run.status === "failed" && <p className="text-sm text-muted-foreground">No text. See the card above.</p>}
       {run.status === "done" && (
         <p lang="th" className="text-[15px] leading-relaxed whitespace-pre-wrap">
-          {highlight && run.diff
-            ? run.diff.segments.map((s, i) =>
-                s.kind === "same" ? (
-                  <span key={i}>{s.text}</span>
-                ) : s.kind === "missing" ? (
-                  <Missing key={i}>{s.text}</Missing>
-                ) : (
-                  <Extra key={i}>{s.text}</Extra>
-                ),
-              )
-            : toPlainText(run.result.text)}
+          {toLines(run.result.text, highlight ? run.diff?.segments : undefined).map((line, i) => (
+            <Fragment key={i}>
+              {i > 0 && "\n"}
+              <span className={line.heading ? "text-base font-semibold text-primary" : undefined}>
+                {line.segments.map((s, k) =>
+                  s.kind === "same" ? (
+                    <span key={k}>{s.text}</span>
+                  ) : s.kind === "missing" ? (
+                    <Missing key={k}>{s.text}</Missing>
+                  ) : (
+                    <Extra key={k}>{s.text}</Extra>
+                  ),
+                )}
+              </span>
+            </Fragment>
+          ))}
         </p>
       )}
     </Card>
