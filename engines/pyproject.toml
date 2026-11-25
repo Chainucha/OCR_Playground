@@ -1,0 +1,38 @@
+[project]
+name = "ocr-playground"
+version = "0.1.0"
+description = "Run and compare OCR engines on the same documents"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "pillow>=11",
+    "rapidfuzz>=3.9",
+    "typer>=0.12",
+]
+
+[project.optional-dependencies]
+server = ["fastapi>=0.115", "uvicorn>=0.30", "python-multipart>=0.0.9"]
+openthai-text = [
+    "numpy>=2.0,<3",
+    "opencv-python-headless>=4.8",
+    "pyclipper>=1.3",
+    "onnxruntime>=1.17",
+    "huggingface-hub>=0.24",
+]
+openthai-markdown = ["openai>=1.40", "httpx>=0.27", "huggingface-hub>=0.24"]
+typhoon = ["typhoon-ocr>=0.4.1"]
+
+[project.scripts]
+ocr = "ocr_playground.cli:app"
+
+[dependency-groups]
+dev = ["pytest>=8", "httpx>=0.27"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ocr_playground"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
