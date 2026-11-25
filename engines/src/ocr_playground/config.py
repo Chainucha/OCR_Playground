@@ -3,7 +3,9 @@ from pathlib import Path
 
 from ocr_playground.engines import EngineUnavailable
 
-MODELS_DIR = Path(os.environ.get("OCR_MODELS_DIR", Path(__file__).resolve().parents[3] / "models"))
+REPO_ROOT = Path(__file__).resolve().parents[3]
+MODELS_DIR = Path(os.environ.get("OCR_MODELS_DIR", REPO_ROOT / "models"))
+SAMPLES_DIR = REPO_ROOT / "data" / "samples"
 
 
 def env(name: str, default: str | None = None) -> str | None:

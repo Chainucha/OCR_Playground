@@ -1,15 +1,16 @@
 "use client";
 
-import { useAuthenticator } from "@aws-amplify/ui-react";
 import { useEffect, useState } from "react";
 import { type EngineResult, type EngineStatus, OCR_API_URL, listEngines, runOcr } from "@/lib/ocr-api";
+import { BROWSER_ENGINE, runInBrowser } from "@/lib/openthai/browser";
 import styles from "./page.module.css";
+import { useSession } from "./providers";
 
 export default function Playground() {
-  const { user, signOut } = useAuthenticator((ctx) => [ctx.user]);
+  const { email, signOut } = useSession();
   const [engines, setEngines] = useState<EngineStatus[] | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string[]>([BROWSER_ENGINE.name]);
   const [file, setFile] = useState<File | null>(null);
   const [groundTruth, setGroundTruth] = useState("");
   const [results, setResults] = useState<EngineResult[]>([]);
@@ -20,9 +21,13 @@ export default function Playground() {
     listEngines()
       .then((list) => {
         setEngines(list);
-        setSelected(list.filter((e) => e.available).map((e) => e.name));
+        setSelected((s) => [...s, ...list.filter((e) => e.available).map((e) => e.name)]);
       })
-      .catch(() => setApiError(`Can't reach the engine API at ${OCR_API_URL}. Start it with \`uv run ocr serve\` in engines/.`));
+      .catch(() =>
+        setApiError(
+          `Can't reach the engine API at ${OCR_API_URL}, so only the in-browser engine is listed. Start the API with \`uv run ocr serve\` in engines/.`,
+        ),
+      );
   }, []);
 
   function onFile(next: File | null) {
@@ -41,13 +46,18 @@ export default function Playground() {
     if (!file || selected.length === 0) return;
     setRunning(true);
     setResults([]);
-    try {
-      setResults(await runOcr(file, selected, groundTruth));
-    } catch (err) {
-      setApiError(String(err));
-    } finally {
-      setRunning(false);
-    }
+    const remote = selected.filter((name) => name !== BROWSER_ENGINE.name);
+    const [local, api] = await Promise.all([
+      selected.includes(BROWSER_ENGINE.name) ? runInBrowser(file, groundTruth).then((r) => [r]) : [],
+      remote.length
+        ? runOcr(file, remote, groundTruth).catch((err) => {
+            setApiError(String(err));
+            return [];
+          })
+        : [],
+    ]);
+    setResults([...local, ...api]);
+    setRunning(false);
   }
 
   return (
@@ -55,8 +65,8 @@ export default function Playground() {
       <header className={styles.header}>
         <h1>OCR Playground</h1>
         <div className={styles.account}>
-          <span>{user?.signInDetails?.loginId}</span>
-          <button type="button" className={styles.linkButton} onClick={signOut}>Sign out</button>
+          <span>{email}</span>
+          {signOut && <button type="button" className={styles.linkButton} onClick={signOut}>Sign out</button>}
         </div>
       </header>
 
@@ -71,8 +81,7 @@ export default function Playground() {
 
           <fieldset className={styles.engines}>
             <legend>Engines</legend>
-            {engines === null && !apiError && <p className={styles.muted}>Loading engines…</p>}
-            {engines?.map((e) => (
+            {[BROWSER_ENGINE, ...(engines ?? [])].map((e) => (
               <label key={e.name} className={e.available ? undefined : styles.disabled} title={e.reason ?? e.description}>
                 <input
                   type="checkbox"
@@ -86,6 +95,7 @@ export default function Playground() {
                 </span>
               </label>
             ))}
+            {engines === null && !apiError && <p className={styles.muted}>Loading API engines…</p>}
           </fieldset>
 
           <label className={styles.gt}>

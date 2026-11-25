@@ -81,16 +81,49 @@ def download(name: Annotated[str, typer.Argument(help="openthai-text or openthai
     repos = {"openthai-text": openthai_text.HF_REPO, "openthai-markdown": openthai_markdown.HF_REPO}
     if name not in repos:
         raise typer.BadParameter(f"Downloadable: {', '.join(repos)}")
-    path = snapshot_download(repos[name], local_dir=MODELS_DIR / name)
+    ignore = openthai_markdown.DOWNLOAD_IGNORE if name == "openthai-markdown" else None
+    path = snapshot_download(repos[name], local_dir=MODELS_DIR / name, ignore_patterns=ignore)
     typer.echo(f"Downloaded {repos[name]} to {path}")
 
 
 @app.command()
-def serve(host: str = "127.0.0.1", port: int = 8000) -> None:
+def synth(
+    count: Annotated[int, typer.Option("--count", "-n", help="Pages to make, spread across the kinds.")] = 10,
+    kind: Annotated[list[str] | None, typer.Option("--kind", "-k", help="invoice, invoice-en, receipt, form, id-card; repeat for several. Default: all.")] = None,
+    out: Annotated[Path | None, typer.Option(help="Output folder; defaults to data/samples.")] = None,
+    quality: Annotated[str, typer.Option(help="clean, scan (skewed, blurred, noisy, JPEG), or mixed.")] = "mixed",
+    seed: Annotated[int | None, typer.Option(help="Same seed and fonts give the same pages.")] = None,
+    font: Annotated[list[Path] | None, typer.Option(help="Font file; repeat for several. Default: every Thai font found (OCR_FONT_DIRS or the system folders).")] = None,
+) -> None:
+    """Make synthetic Thai documents with exact ground truth for `ocr bench`."""
+    try:
+        from ocr_playground.synth import generate
+    except ImportError as exc:
+        raise typer.BadParameter(f"missing {exc.name}; run `uv sync --extra synth`") from exc
+    from ocr_playground.config import SAMPLES_DIR
+
+    if quality not in ("clean", "scan", "mixed"):
+        raise typer.BadParameter("quality must be clean, scan, or mixed")
+    try:
+        made = generate(out or SAMPLES_DIR, count, kind, quality, seed, font)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    for page in made:
+        typer.echo(f"{page.image.name:<32} {page.quality:<6} {page.font}")
+    typer.echo(f"\nWrote {len(made)} pages to {(out or SAMPLES_DIR).resolve()}")
+
+
+@app.command()
+def serve(
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    reload: Annotated[bool, typer.Option(help="Restart when engine code changes (development).")] = False,
+) -> None:
     """Start the HTTP API the web app calls (GET /engines, POST /ocr)."""
     import uvicorn
 
-    uvicorn.run("ocr_playground.server:app", host=host, port=port)
+    src = Path(__file__).resolve().parent
+    uvicorn.run("ocr_playground.server:app", host=host, port=port, reload=reload, reload_dirs=[str(src)] if reload else None)
 
 
 if __name__ == "__main__":

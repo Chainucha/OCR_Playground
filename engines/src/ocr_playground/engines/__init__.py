@@ -45,7 +45,7 @@ REGISTRY: dict[str, EngineSpec] = {
     spec.name: spec
     for spec in (
         EngineSpec("openthai-text", "iapp OpenThai OCR-Text: CPU ONNX pipeline, plain text with line boxes", _openthai_text),
-        EngineSpec("openthai-markdown", "iapp OpenThai OCR-Markdown: Nemotron Parse on vLLM, Markdown with HTML tables", _openthai_markdown),
+        EngineSpec("openthai-markdown", "iapp OpenThai OCR-Markdown: Nemotron Parse on a local GPU or vLLM, Markdown with HTML tables", _openthai_markdown),
         EngineSpec("typhoon", "Typhoon OCR on vLLM, Markdown with HTML tables", _typhoon),
     )
 }
