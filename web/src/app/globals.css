@@ -131,6 +131,14 @@
   --amplify-components-fieldcontrol-color: var(--foreground);
   --amplify-components-fieldcontrol-border-color: var(--input);
   --amplify-components-fieldcontrol-focus-border-color: var(--ring);
+  /*
+   * Amplify resolves these at :root from the fieldcontrol ones above, so they must be set here too. Otherwise the
+   * typed text stays Amplify's navy (1.1:1 on the card) and the focus glow stays its teal.
+   */
+  --amplify-components-input-color: var(--foreground);
+  --amplify-components-input-border-color: var(--input);
+  --amplify-components-input-focus-border-color: var(--ring);
+  --amplify-components-fieldcontrol-focus-box-shadow: 0 0 0 1px var(--ring);
   --amplify-components-passwordfield-button-color: var(--foreground);
   --amplify-components-button-color: var(--foreground);
   --amplify-components-button-border-color: var(--input);

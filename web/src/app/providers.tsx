@@ -8,6 +8,9 @@ import outputs from "../../amplify_outputs.json";
 const localCognito = process.env.NEXT_PUBLIC_COGNITO_ENDPOINT;
 
 if (localCognito) {
+  // Local sign-in keeps the session in localStorage, not cookies (ssr: false). Cookies are shared by every localhost
+  // port, and each local launch makes a new user pool with new cookie names, so they pile up until requests fail with
+  // HTTP 431. localStorage is per port. Nothing on the server reads the session.
   Amplify.configure(
     {
       Auth: {
@@ -19,7 +22,7 @@ if (localCognito) {
         },
       },
     },
-    { ssr: true },
+    { ssr: false },
   );
 } else {
   Amplify.configure(outputs, { ssr: true });
