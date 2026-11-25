@@ -10,7 +10,7 @@ export default function Playground() {
   const { email, signOut } = useSession();
   const [engines, setEngines] = useState<EngineStatus[] | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string[]>([BROWSER_ENGINE.name]);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set([BROWSER_ENGINE.name]));
   const [file, setFile] = useState<File | null>(null);
   const [groundTruth, setGroundTruth] = useState("");
   const [results, setResults] = useState<EngineResult[]>([]);
@@ -21,7 +21,7 @@ export default function Playground() {
     listEngines()
       .then((list) => {
         setEngines(list);
-        setSelected((s) => [...s, ...list.filter((e) => e.available).map((e) => e.name)]);
+        setSelected((s) => new Set([...s, ...list.filter((e) => e.available).map((e) => e.name)]));
       })
       .catch(() =>
         setApiError(
@@ -40,15 +40,19 @@ export default function Playground() {
   }
 
   const toggle = (name: string) =>
-    setSelected((s) => (s.includes(name) ? s.filter((n) => n !== name) : [...s, name]));
+    setSelected((s) => {
+      const next = new Set(s);
+      if (!next.delete(name)) next.add(name);
+      return next;
+    });
 
   async function onRun() {
-    if (!file || selected.length === 0) return;
+    if (!file || selected.size === 0) return;
     setRunning(true);
     setResults([]);
-    const remote = selected.filter((name) => name !== BROWSER_ENGINE.name);
+    const remote = [...selected].filter((name) => name !== BROWSER_ENGINE.name);
     const [local, api] = await Promise.all([
-      selected.includes(BROWSER_ENGINE.name) ? runInBrowser(file, groundTruth).then((r) => [r]) : [],
+      selected.has(BROWSER_ENGINE.name) ? runInBrowser(file, groundTruth).then((r) => [r]) : [],
       remote.length
         ? runOcr(file, remote, groundTruth).catch((err) => {
             setApiError(String(err));
@@ -86,7 +90,7 @@ export default function Playground() {
                 <input
                   type="checkbox"
                   disabled={!e.available}
-                  checked={selected.includes(e.name)}
+                  checked={selected.has(e.name)}
                   onChange={() => toggle(e.name)}
                 />
                 <span>
@@ -103,8 +107,8 @@ export default function Playground() {
             <textarea rows={5} value={groundTruth} onChange={(e) => setGroundTruth(e.target.value)} />
           </label>
 
-          <button type="button" className={styles.run} disabled={!file || selected.length === 0 || running} onClick={onRun}>
-            {running ? "Running…" : `Run ${selected.length} engine${selected.length === 1 ? "" : "s"}`}
+          <button type="button" className={styles.run} disabled={!file || selected.size === 0 || running} onClick={onRun}>
+            {running ? "Running…" : `Run ${selected.size} engine${selected.size === 1 ? "" : "s"}`}
           </button>
         </section>
 
