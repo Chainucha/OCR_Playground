@@ -35,20 +35,7 @@ COGNITO_PORT = 5100
 ENGINE_URL = f"http://127.0.0.1:{ENGINE_PORT}"
 WEB_URL = f"http://localhost:{WEB_PORT}"
 
-PLACEHOLDER_OUTPUTS = {
-    "version": "1.4",
-    "auth": {
-        "aws_region": "ap-southeast-1",
-        "user_pool_id": "ap-southeast-1_VERIFYPLACEHOLDER",
-        "user_pool_client_id": "verifyplaceholder",
-        "username_attributes": ["email"],
-        "standard_required_attributes": ["email"],
-        "user_verification_types": ["email"],
-        "password_policy": {"min_length": 8, "require_lowercase": True, "require_numbers": True,
-                            "require_symbols": True, "require_uppercase": True},
-        "unauthenticated_identities_enabled": False,
-    },
-}
+PLACEHOLDER_OUTPUTS = REPO / "web" / "amplify_outputs.placeholder.json"
 
 WINDOWS = os.name == "nt"
 
@@ -154,7 +141,7 @@ def up() -> None:
     state = {"head": git_head(), "pids": {}, "created_outputs": False}
 
     if not OUTPUTS.exists():
-        OUTPUTS.write_text(json.dumps(PLACEHOLDER_OUTPUTS, indent=2), encoding="utf-8")
+        shutil.copyfile(PLACEHOLDER_OUTPUTS, OUTPUTS)
         state["created_outputs"] = True
     STATE.write_text(json.dumps(state, indent=2), encoding="utf-8")
 

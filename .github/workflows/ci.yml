@@ -1,0 +1,49 @@
+name: checks
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    name: "web: typecheck, lint, test, build"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # Not `npm ci`: npm rejects this lock file's bundled Amplify dependencies as out of sync, even a fresh one.
+      - run: npm install --no-audit --no-fund
+      # The page imports amplify_outputs.json, which only an Amplify deploy or sandbox writes. Any valid one builds.
+      - run: cp amplify_outputs.placeholder.json amplify_outputs.json
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  engines:
+    name: "engines: module rules, tests"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: engines
+    steps:
+      - uses: actions/checkout@v7
+
+      # Thai fonts for `ocr synth` and its tests.
+      - run: sudo apt-get update && sudo apt-get install -y fonts-thai-tlwg
+      - run: pipx install uv
+      - run: uv sync --extra server --extra synth --extra openthai-text --extra openthai-markdown
+      - run: uv run lint-imports
+      - run: uv run pytest

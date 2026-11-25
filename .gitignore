@@ -8,3 +8,6 @@ __pycache__/
 .pytest_cache/
 .verify/
 .dev/
+
+# Claude Code local settings
+.claude/settings.local.json

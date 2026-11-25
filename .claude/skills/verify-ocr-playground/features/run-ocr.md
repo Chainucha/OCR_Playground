@@ -1,6 +1,6 @@
 # Run OCR (Side by side)
 
-A signed-in teammate adds one or more photos, scans or PDFs (by drag and drop or the file picker), picks models, optionally adds the correct text for each page, and presses Read. Every PDF page becomes its own page, rendered to an image in the browser in the background. Pages are read one after another. For the page chosen in the page list, each model gets a score card (accuracy, number of mistakes, seconds) and a text column, next to the page image and its correct text. With correct text, mistakes are marked word by word: `del` is what the page says, `ins` is what the model wrote instead. The page uses friendly model names from `web/src/lib/models.ts`, never engine ids.
+A signed-in teammate adds one or more photos, scans or PDFs (by drag and drop or the file picker), picks models, optionally adds the correct text for each page, and presses Read. Every PDF page becomes its own page, rendered to an image in the browser in the background. Pages are read one after another. For the page chosen in the page list, each model gets a score card (accuracy, number of mistakes, seconds) and a text column, next to the page image and its correct text. With correct text, mistakes are marked word by word: `del` is what the page says, `ins` is what the model wrote instead. The page uses friendly model names from `web/src/modules/engines/core/models.ts`, never engine ids.
 
 ## Sub-features
 

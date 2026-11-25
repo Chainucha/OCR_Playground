@@ -75,7 +75,7 @@ Stable handles, all in the current code:
 | A model failed | `#results [role=alert]` in its score card |
 | API unreachable notice | `main > p[role=status]` |
 
-The page shows friendly model names, not engine ids: `openthai-text-browser` is `OpenThai Quick · Private`, `openthai-text` is `OpenThai Quick` (mapping in `web/src/lib/models.ts`). Checkbox names start with the friendly name. Take `agent-browser snapshot` and click by ref (`agent-browser click @e17`), or `agent-browser find role button click --name "Read with 2 models"`.
+The page shows friendly model names, not engine ids: `openthai-text-browser` is `OpenThai Quick · Private`, `openthai-text` is `OpenThai Quick` (mapping in `web/src/modules/engines/core/models.ts`). Checkbox names start with the friendly name. Take `agent-browser snapshot` and click by ref (`agent-browser click @e17`), or `agent-browser find role button click --name "Read with 2 models"`.
 
 For a worked sequence, see `features/run-ocr.md`. The CLI and API recipes are in `features/cli.md` and `features/engine-api.md`.
 
@@ -110,7 +110,7 @@ python .claude/skills/verify-ocr-playground/scripts/verify.py down
 
 ## Gotchas
 
-- Next.js 16 allows one `next dev` per checkout. A developer's dev server on port 3000 doesn't block verification, because verification uses `next build` plus `next start` into `.next-verify`. Never kill a dev server you did not start.
+- A developer's dev server on port 3000 doesn't block verification, because verification uses `next build` plus `next start` into `.next-verify`. Never kill a dev server you did not start.
 - `NEXT_PUBLIC_*` values are baked in at build time. After changing web code or env, run `down` and then `up`. Doctor's `build` line catches a stale bundle.
 - `agent-browser upload` with a backslash Windows path (`D:\...`) freezes the tab. Use forward slashes (`D:/Kim/.../page.png`).
 - The first `next build` with a new dist dir adds `.next-verify/types/**/*.ts` to `web/tsconfig.json`. That edit is expected and committed.
