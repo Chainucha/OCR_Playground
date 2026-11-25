@@ -1,0 +1,19 @@
+{
+  "version": "1.4",
+  "auth": {
+    "aws_region": "ap-southeast-1",
+    "user_pool_id": "ap-southeast-1_PLACEHOLDER",
+    "user_pool_client_id": "placeholder",
+    "username_attributes": ["email"],
+    "standard_required_attributes": ["email"],
+    "user_verification_types": ["email"],
+    "password_policy": {
+      "min_length": 8,
+      "require_lowercase": true,
+      "require_numbers": true,
+      "require_symbols": true,
+      "require_uppercase": true
+    },
+    "unauthenticated_identities_enabled": false
+  }
+}

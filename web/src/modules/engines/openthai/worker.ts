@@ -1,7 +1,7 @@
 // Web Worker that owns the ONNX sessions and runs readPage, so OCR never blocks the page's main thread.
 
-import { cer } from "@/lib/cer";
-import { type Line, type Stage, WARMUP_RUNS } from "@/lib/ocr-api";
+import { cer } from "@/modules/scoring";
+import { type Line, type Stage, WARMUP_RUNS } from "../core/types";
 import { type ModelName, readPage } from "./ocr";
 
 // Pinned to the Hugging Face commit the Python engine was checked against, so iApp's updates can't change results

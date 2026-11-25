@@ -1,8 +1,9 @@
 // Runs one engine on one page, timed from the moment the request is sent to the moment the result arrives, and warms
 // engines up when the page opens so that the times shown are steady ones.
 
-import { type EngineResult, type Stage, WARMUP_RUNS, runOcr } from "@/lib/ocr-api";
-import { BROWSER_ENGINE, runInBrowser } from "@/lib/openthai/browser";
+import { runOcr } from "./api-client";
+import { type EngineResult, type Stage, WARMUP_RUNS } from "./core/types";
+import { BROWSER_ENGINE, runInBrowser } from "./openthai/browser";
 
 export type Timed = {
   result: EngineResult;

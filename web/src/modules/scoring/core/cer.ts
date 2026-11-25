@@ -1,4 +1,4 @@
-// Character error rate, the same normalisation as engines/src/ocr_playground/metrics.py so browser and API scores agree.
+// Character error rate, the same normalisation as engines/src/ocr_playground/scoring/metrics.py so browser and API scores agree.
 
 const HTML_TAG = /<[^>]+>/g;
 const MD_SYNTAX = /^\s{0,3}(#{1,6}\s|[-*+]\s|>\s?)|[*_`|]|^\s*:?-{3,}:?\s*$/gm;
