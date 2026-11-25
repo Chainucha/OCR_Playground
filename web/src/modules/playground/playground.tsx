@@ -1,6 +1,6 @@
 "use client";
 
-import { Sparkles, TriangleAlert } from "lucide-react";
+import { Check, ChevronDown, ScanText, TriangleAlert } from "lucide-react";
 import { useEffect, useReducer, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -13,12 +13,18 @@ import { BROWSER_ENGINE, type EngineStatus, type Readiness, listEngines, runEngi
 import { diffWords } from "@/modules/scoring";
 
 import { type Batch, type Mode, type Run, type Slot, bestEngine, progressLine, readLabel } from "./core/run";
+import { Column } from "./ui/column";
 import { Extra, Missing } from "./ui/marks";
+import { ModeToggle } from "./ui/mode-toggle";
+import { ModelHead } from "./ui/model-head";
 import { ModelPicker } from "./ui/model-picker";
+import { ModelText } from "./ui/model-text";
 import { PageAdder } from "./ui/page-adder";
 import { PageStrip } from "./ui/page-strip";
-import { ScoreCard } from "./ui/score-card";
-import { TextColumn } from "./ui/text-column";
+
+/** Places where left and right arrows already do something: typing, the mode choice, the sideways-scrolling text, the
+ * models popover. */
+const ARROW_KEY_OWNERS = 'input, textarea, select, [contenteditable="true"], [role="radiogroup"], [role="region"], [role="dialog"]';
 
 export function Playground() {
   const { email, signOut } = useSession();
@@ -35,6 +41,7 @@ export function Playground() {
   const [notices, setNotices] = useState<string[]>([]);
   const [showCorrect, setShowCorrect] = useState(false);
   const [highlight, setHighlight] = useState(true);
+  const [showTimes, setShowTimes] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const pageList = useRef<HTMLUListElement>(null);
   // The read loop takes the page list from here, and sleeps on `wake` until the list next changes.
@@ -82,6 +89,25 @@ export function Playground() {
       window.removeEventListener("drop", keep);
     };
   }, []);
+
+  // Left and right arrows move to the previous or next page, unless the focused control uses them itself.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+      if (!step || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      if ((e.target as Element).closest(ARROW_KEY_OWNERS)) return;
+      const i = pages.findIndex((p) => p.id === selectedId);
+      const next = pages[i + step];
+      if (i < 0 || !next) return;
+      e.preventDefault();
+      setSelectedId(next.id);
+      const button = pageList.current?.querySelector<HTMLElement>(`[data-page="${next.id}"]`);
+      if (pageList.current?.contains(document.activeElement)) button?.focus();
+      else button?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pages, selectedId]);
 
   function addFiles(files: File[]) {
     if (files.length === 0) return;
@@ -157,6 +183,8 @@ export function Playground() {
     const how = mode;
     const started = new Set<string>();
     setBatches(new Map());
+    // The correct text shows up as its own column in the results, so the box would only push them down.
+    setShowCorrect(false);
     try {
       for (;;) {
         const next = latestPages.current.find((p) => !started.has(p.id) && p.image.kind !== "failed");
@@ -182,6 +210,23 @@ export function Playground() {
   const reference = batch?.reference ?? "";
   const waitingForEarlier = run.kind === "running" && page !== null && !run.started.has(page.id);
   const showResults = page !== null && (batch !== undefined || waitingForEarlier);
+  const hasCorrectText = !!page?.groundTruth.trim();
+  const blocker =
+    running || preparing
+      ? null
+      : readable.length === 0
+        ? "Add a page to start."
+        : selected.size === 0
+          ? "Choose at least one model."
+          : null;
+  // The page gets the widest column: it's the thing every reading is checked against.
+  const columns = [
+    page?.image.kind === "ready" && "minmax(320px,1.4fr)",
+    reference && "minmax(240px,1fr)",
+    ...slots.map(() => "minmax(260px,1fr)"),
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -195,7 +240,7 @@ export function Playground() {
       )}
       <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-card px-4 py-2 md:px-6">
         <p className="flex items-center gap-2 text-base font-semibold">
-          <Sparkles aria-hidden className="size-5 text-primary" />
+          <ScanText aria-hidden className="size-5 text-primary" />
           OCR Playground
         </p>
         <div className="flex items-center gap-3 text-sm text-muted-foreground">
@@ -210,7 +255,7 @@ export function Playground() {
 
       <main className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col gap-5 px-4 py-6 md:px-6">
         <div>
-          <h1 className="text-2xl font-semibold">Compare OCR models</h1>
+          <h1 className="text-2xl font-semibold text-primary">Compare OCR models</h1>
           <p className="text-muted-foreground">
             Add pages, choose the models, and see what each one reads, side by side.
           </p>
@@ -219,21 +264,14 @@ export function Playground() {
         {serverDown && (
           <p role="status" className="flex gap-2 rounded-lg border-2 border-dashed border-warning-border bg-warning p-3 text-sm text-warning-foreground">
             <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
-            We can&apos;t reach the server that runs most models, so only OpenThai Quick · Private is available right now.
+            We can&apos;t reach the server that runs most models, so only OpenThai2.1-OCR-Text in your browser is available right now.
           </p>
         )}
 
-        <Card className="flex min-w-0 flex-row flex-wrap items-center gap-4 p-4">
+        <Card className="flex min-w-0 flex-row flex-wrap items-center gap-3 p-4">
           <PageAdder hasPages={pages.length > 0} inputRef={fileInput} onFiles={addFiles} onWarm={importer.warm} />
-          <ModelPicker
-            engines={engines}
-            readiness={readiness}
-            selected={selected}
-            onToggle={toggle}
-            mode={mode}
-            onMode={setMode}
-            locked={running}
-          />
+          <ModelPicker engines={engines} readiness={readiness} selected={selected} onToggle={toggle} />
+          <ModeToggle mode={mode} onMode={setMode} locked={running} />
           <Button
             variant="outline"
             size="lg"
@@ -241,17 +279,29 @@ export function Playground() {
             aria-controls="correct-text"
             onClick={() => setShowCorrect((v) => !v)}
           >
-            {page?.groundTruth.trim() ? "Correct text added" : "Add the correct text"}
+            {hasCorrectText && <Check aria-hidden className="text-success" />}
+            {hasCorrectText ? "Correct text added" : "Add the correct text"}
+            <ChevronDown
+              aria-hidden
+              className={`transition-transform motion-reduce:transition-none ${showCorrect ? "rotate-180" : ""}`}
+            />
           </Button>
-          <Button
-            size="lg"
-            className="ml-auto h-10 px-5 text-base hover:bg-primary-hover"
-            disabled={running || preparing || readable.length === 0 || selected.size === 0}
-            aria-describedby={preparing ? "getting-ready" : undefined}
-            onClick={read}
-          >
-            {readLabel(run, readable, selected.size, preparing)}
-          </Button>
+          <div className="flex w-full flex-wrap items-center justify-end gap-x-3 gap-y-2 sm:ml-auto sm:w-auto">
+            {blocker && (
+              <p id="read-why" className="text-sm text-muted-foreground">
+                {blocker}
+              </p>
+            )}
+            <Button
+              size="lg"
+              className="h-10 w-full px-5 text-base hover:bg-primary-hover sm:w-auto"
+              disabled={running || preparing || blocker !== null}
+              aria-describedby={preparing ? "getting-ready" : blocker ? "read-why" : undefined}
+              onClick={read}
+            >
+              {readLabel(run, readable, selected.size, preparing)}
+            </Button>
+          </div>
           <p id="getting-ready" role="status" className="w-full text-sm text-muted-foreground empty:sr-only">
             {preparing &&
               "Each model reads a practice page first, so the times you see are steady. This takes a few seconds."}
@@ -309,93 +359,106 @@ export function Playground() {
         )}
 
         {showResults && page && (
-          <section id="results" aria-labelledby="results-h" aria-busy={running} className="flex flex-col gap-5">
-            <div>
-              <h2 id="results-h" className="text-xl font-semibold">
-                How each model did
-                {pages.length > 1 && <span className="font-normal text-muted-foreground"> on {page.label}</span>}
-              </h2>
-              {/* No ticking clock in here: a live region that changes every 100 ms would talk over everything. */}
-              <p role="status" className="text-sm text-muted-foreground">
-                {batch
-                  ? progressLine(batch)
-                  : "Waiting for the pages before it."}
-              </p>
+          <section id="results" aria-labelledby="results-h" aria-busy={running} className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+              <div className="mr-auto">
+                <h2 id="results-h" className="text-xl font-semibold text-primary">
+                  How each model did
+                  {pages.length > 1 && <span className="font-normal text-muted-foreground"> on {page.label}</span>}
+                </h2>
+                {/* No ticking clock in here: a live region that changes every 100 ms would talk over everything. */}
+                <p role="status" className="text-sm text-muted-foreground">
+                  {batch ? progressLine(batch) : "Waiting for the pages before it."}
+                </p>
+              </div>
+              {batch && reference && (
+                <div className="flex flex-col items-start gap-1.5 sm:items-end">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="highlight"
+                      checked={highlight}
+                      onCheckedChange={setHighlight}
+                      className="dark:data-unchecked:bg-input"
+                    />
+                    <label htmlFor="highlight" className="cursor-pointer text-sm">
+                      Highlight mistakes
+                    </label>
+                  </div>
+                  {highlight && (
+                    <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                      <span>
+                        <Missing>เพิ่ม</Missing> what the page says
+                      </span>
+                      <span>
+                        <Extra>เพิม</Extra> what the model wrote instead
+                      </span>
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             {batch && (
-              <>
-                <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3">
+              <div
+                tabIndex={0}
+                role="region"
+                aria-label="The page, the correct text, and what each model read. On wide screens with many models, scroll sideways."
+                className="overflow-x-auto rounded-xl"
+              >
+                {/* One column per source. On wider screens every column shares two rows (the scores, then the text),
+                    so each model's first line starts level with the others. */}
+                <div
+                  className="flex flex-col gap-3 md:grid md:grid-flow-col md:grid-rows-[auto_1fr] md:gap-x-3 md:gap-y-0"
+                  style={{ gridTemplateColumns: columns }}
+                >
+                  {page.image.kind === "ready" && (
+                    <Column
+                      head={
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                          <h3 className="font-semibold text-primary">The page</h3>
+                          <a
+                            href={page.image.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-sm text-primary underline underline-offset-4 hover:text-primary-hover"
+                          >
+                            Open full size
+                          </a>
+                        </div>
+                      }
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element -- a local object URL, nothing for next/image to optimise */}
+                      <img src={page.image.url} alt={`The page: ${page.label}`} className="w-full rounded border bg-white" />
+                    </Column>
+                  )}
+                  {reference && (
+                    <Column className="bg-muted" head={<h3 className="font-semibold text-primary">The correct text</h3>}>
+                      <p lang="th" className="text-[15px] leading-relaxed whitespace-pre-wrap">
+                        {reference}
+                      </p>
+                    </Column>
+                  )}
                   {slots.map((slot) => (
-                    <ScoreCard
+                    <Column
                       key={slot.engine}
-                      slot={slot}
-                      best={slot.engine === best}
-                      together={together}
-                      hasReference={!!reference}
-                    />
+                      busy={slot.status === "waiting" || slot.status === "reading"}
+                      className={slot.engine === best ? "ring-2 ring-success" : ""}
+                      head={
+                        <ModelHead
+                          slot={slot}
+                          best={slot.engine === best}
+                          together={together}
+                          hasReference={!!reference}
+                          showTimes={showTimes}
+                          onShowTimes={setShowTimes}
+                        />
+                      }
+                    >
+                      <ModelText slot={slot} highlight={highlight} />
+                    </Column>
                   ))}
                 </div>
-
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-                  <h2 className="mr-auto text-xl font-semibold">The text</h2>
-                  {reference && (
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        id="highlight"
-                        checked={highlight}
-                        onCheckedChange={setHighlight}
-                        className="dark:data-unchecked:bg-input"
-                      />
-                      <label htmlFor="highlight" className="cursor-pointer text-sm">
-                        Highlight mistakes
-                      </label>
-                    </div>
-                  )}
-                </div>
-                {highlight && reference && (
-                  <p className="-mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted-foreground">
-                    <span>
-                      <Missing>เพิ่ม</Missing> what the page says
-                    </span>
-                    <span>
-                      <Extra>เพิม</Extra> what the model wrote instead
-                    </span>
-                  </p>
-                )}
-
-                <div
-                  tabIndex={0}
-                  role="region"
-                  aria-label="The page and the text from each model. On small screens, scroll sideways."
-                  className="relative overflow-x-auto rounded-xl"
-                >
-                  <div className="grid auto-cols-[minmax(280px,1fr)] grid-flow-col gap-3">
-                    {page.image.kind === "ready" && (
-                      <Card className="gap-2 p-4">
-                        <h3 className="font-semibold">The page</h3>
-                        {/* eslint-disable-next-line @next/next/no-img-element -- a local object URL, nothing for next/image to optimise */}
-                        <img
-                          src={page.image.url}
-                          alt={`The page: ${page.label}`}
-                          className="w-full rounded border bg-white"
-                        />
-                      </Card>
-                    )}
-                    {reference && (
-                      <Card className="gap-2 bg-muted p-4">
-                        <h3 className="font-semibold">The correct text</h3>
-                        <p lang="th" className="text-[15px] leading-relaxed whitespace-pre-wrap">
-                          {reference}
-                        </p>
-                      </Card>
-                    )}
-                    {slots.map((slot) => (
-                      <TextColumn key={slot.engine} slot={slot} highlight={highlight} />
-                    ))}
-                  </div>
-                </div>
-              </>
+              </div>
             )}
           </section>
         )}

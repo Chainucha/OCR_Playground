@@ -37,9 +37,13 @@ export function PageAdder({
         setDragging(false);
         onFiles([...e.dataTransfer.files]);
       }}
-      className={`flex min-h-14 flex-1 basis-72 cursor-pointer items-center gap-3 rounded-lg border-2 border-dashed p-2 pr-4 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring ${
-        dragging ? "border-primary bg-accent" : "border-input"
-      }`}
+      // With no pages yet, adding one is the only thing to do, so the drop area takes the whole first row. It stays the
+      // same element as it shrinks, so the file picker keeps focus.
+      className={`flex cursor-pointer rounded-lg border-2 border-dashed focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring ${
+        hasPages
+          ? "min-h-14 flex-1 basis-72 items-center gap-3 p-2 pr-4"
+          : "min-h-56 basis-full flex-col items-center justify-center gap-3 p-6 text-center"
+      } ${dragging ? "border-primary bg-accent" : "border-input"}`}
     >
       <input
         ref={inputRef}
@@ -54,15 +58,21 @@ export function PageAdder({
           onFiles(files);
         }}
       />
-      <FileUp aria-hidden className="size-6 shrink-0 text-primary" />
-      <span className="flex min-w-0 flex-col">
-        <span className="font-medium">
+      <FileUp aria-hidden className={`shrink-0 text-primary ${hasPages ? "size-6" : "size-8"}`} />
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className={`font-medium ${hasPages ? "" : "text-lg"}`}>
           {hasPages ? "Drag more pages here, or add files" : "Drag pages here, or choose files"}
         </span>
         <span className="text-sm text-muted-foreground">
           Photos, scans (PNG or JPG) or PDFs. Each PDF page becomes its own page.
         </span>
       </span>
+      {!hasPages && (
+        // Looks like a button so it's clear the area can be clicked; the label around it does the work.
+        <span aria-hidden className="mt-1 rounded-md border border-input px-4 py-2 text-sm font-medium">
+          Choose files
+        </span>
+      )}
     </label>
   );
 }

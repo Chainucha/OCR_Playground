@@ -3,36 +3,20 @@ import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { type EngineStatus, type Readiness, explainError, modelInfo } from "@/modules/engines";
 
-import { type Mode, plural } from "../core/run";
-
-const MODES: { value: Mode; label: string; hint: string }[] = [
-  { value: "queue", label: "One at a time", hint: "Each time is accurate, because each model reads alone." },
-  {
-    value: "parallel",
-    label: "All at once",
-    hint: "Faster, but times can read high: models on the same computer slow each other down.",
-  },
-];
+import { plural } from "../core/run";
 
 export function ModelPicker({
   engines,
   readiness,
   selected,
   onToggle,
-  mode,
-  onMode,
-  locked,
 }: {
   engines: EngineStatus[];
   readiness: Record<string, Readiness>;
   selected: ReadonlySet<string>;
   onToggle: (name: string) => void;
-  mode: Mode;
-  onMode: (m: Mode) => void;
-  locked: boolean;
 }) {
   function about(e: EngineStatus, goodFor: string): string {
     if (!e.available) return "Not set up on this server yet.";
@@ -74,27 +58,6 @@ export function ModelPicker({
               </div>
             );
           })}
-        </fieldset>
-        <fieldset disabled={locked} className="flex flex-col gap-1 border-t pt-2 disabled:opacity-60">
-          <legend className="px-2 py-1 text-sm font-semibold">How to run them</legend>
-          <RadioGroup value={mode} onValueChange={(v) => onMode(v as Mode)} disabled={locked} className="gap-1">
-            {MODES.map((m) => (
-              <div key={m.value} className="flex gap-3 rounded-md p-2 hover:bg-muted">
-                <RadioGroupItem
-                  id={`mode-${m.value}`}
-                  value={m.value}
-                  className="mt-0.5 border-input"
-                  aria-describedby={`mode-${m.value}-about`}
-                />
-                <label htmlFor={`mode-${m.value}`} className="cursor-pointer">
-                  <span className="block font-medium">{m.label}</span>
-                  <span id={`mode-${m.value}-about`} className="block text-sm text-muted-foreground">
-                    {m.hint}
-                  </span>
-                </label>
-              </div>
-            ))}
-          </RadioGroup>
         </fieldset>
       </PopoverContent>
     </Popover>

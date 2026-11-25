@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { diffWords, toPlainText } from "./diff";
+import { diffWords, toLines, toPlainText } from "./diff";
 
 describe("toPlainText", () => {
   it("keeps line breaks from table rows and drops markup", () => {
@@ -29,5 +29,23 @@ describe("diffWords", () => {
 
   it("counts separate runs of wrong words as separate mistakes", () => {
     expect(diffWords("a b c d e", "x b c d y")?.mistakes).toBe(2);
+  });
+});
+
+describe("toLines", () => {
+  it("splits the text into lines and marks the ones the model wrote as headings", () => {
+    const lines = toLines("# ใบกำกับภาษี\nราคา 100\n<h2>รวม</h2>");
+    expect(lines.map((l) => [l.heading, l.segments.map((s) => s.text).join("")])).toEqual([
+      [true, "ใบกำกับภาษี"],
+      [false, "ราคา 100"],
+      [true, "รวม"],
+    ]);
+  });
+
+  it("keeps the mistake marks, split at line breaks", () => {
+    const diff = diffWords("ราคา\nเพิ่ม", "ราคา\nเพิม");
+    const lines = toLines("ราคา\nเพิม", diff?.segments);
+    expect(lines).toHaveLength(2);
+    expect(lines[1].segments.map((s) => s.kind)).toEqual(["missing", "extra"]);
   });
 });

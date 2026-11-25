@@ -58,24 +58,25 @@ export function readLabel(run: Run, readable: readonly { id: string }[], models:
   return `${run.reading ? "Reading" : "Preparing"} page ${n} of ${Math.max(n, readable.length)}…`;
 }
 
-/** One line on how the read of a page is going, for the status region above the score cards. */
+/** How the read of a page is going, as sentences for the status region above the results: "2 finished, 1 reading."
+ * then the total once every model has answered. */
 export function progressLine(batch: Batch): string {
   const count = (status: Slot["status"]) => batch.slots.filter((s) => s.status === status).length;
-  return [
-    count("done") && `${count("done")} finished`,
-    count("reading") && `${count("reading")} reading`,
-    count("waiting") && `${count("waiting")} waiting ${count("waiting") === 1 ? "its" : "their"} turn`,
-    count("failed") && `${count("failed")} need${count("failed") === 1 ? "s" : ""} another try`,
-    batch.totalMs !== null && totalLine(batch),
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const [done, reading, waiting, failed] = [count("done"), count("reading"), count("waiting"), count("failed")];
+  const parts = [
+    done && `${done} finished`,
+    reading && `${reading} reading`,
+    waiting && `${waiting} waiting ${waiting === 1 ? "its" : "their"} turn`,
+    failed && `${failed} need${failed === 1 ? "s" : ""} another try`,
+  ].filter(Boolean);
+  const now = `${parts.join(", ")}.`;
+  return batch.totalMs === null ? now : `${now} ${totalLine(batch)}`;
 }
 
 /** The finished summary: how long the whole read took, and for all at once, what the separate times add up to. */
 function totalLine(batch: Batch): string {
   const total = `${seconds(batch.totalMs ?? 0)} sec in total`;
-  if (batch.mode === "queue" || batch.slots.length < 2) return `one at a time, ${total}`;
+  if (batch.mode === "queue" || batch.slots.length < 2) return `One at a time, ${total}.`;
   const added = finished(batch.slots).reduce((sum, d) => sum + d.ms, 0);
-  return `all at once, ${total} (the separate times add up to ${seconds(added)} sec)`;
+  return `All at once, ${total} (the separate times add up to ${seconds(added)} sec).`;
 }

@@ -57,16 +57,16 @@ describe("progressLine", () => {
       totalMs: null,
       slots: [done("a", null), { engine: "b", status: "reading", startedAt: 0 }, { engine: "c", status: "waiting" }],
     };
-    expect(progressLine(batch)).toBe("1 finished · 1 reading · 1 waiting its turn");
+    expect(progressLine(batch)).toBe("1 finished, 1 reading, 1 waiting its turn.");
   });
 
   it("adds the total time when every model has answered", () => {
     const slots = [done("a", null, 1200), done("b", null, 800), { engine: "c", status: "failed", error: "x" } as Slot];
     expect(progressLine({ mode: "queue", reference: "", totalMs: 2000, slots })).toBe(
-      "2 finished · 1 needs another try · one at a time, 2.0 sec in total",
+      "2 finished, 1 needs another try. One at a time, 2.0 sec in total.",
     );
     expect(progressLine({ mode: "parallel", reference: "", totalMs: 1300, slots })).toBe(
-      "2 finished · 1 needs another try · all at once, 1.3 sec in total (the separate times add up to 2.0 sec)",
+      "2 finished, 1 needs another try. All at once, 1.3 sec in total (the separate times add up to 2.0 sec).",
     );
   });
 });
