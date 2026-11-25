@@ -1,7 +1,7 @@
 "use client";
 
-import { ChevronDown, FileUp, Info, Lock, Sparkles, TriangleAlert } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { Check, ChevronDown, FileUp, Info, Loader2, Lock, Sparkles, TriangleAlert, X } from "lucide-react";
+import { type DragEvent, useEffect, useId, useReducer, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -14,6 +14,7 @@ import { type Diff, diffWords, toPlainText } from "@/lib/diff";
 import { explainError, modelInfo } from "@/lib/models";
 import { type EngineResult, type EngineStatus, type Stage, listEngines } from "@/lib/ocr-api";
 import { BROWSER_ENGINE } from "@/lib/openthai/browser";
+import { type Page, createImporter, pagesReducer } from "@/lib/pages";
 import { type Readiness, runEngine, warmUp } from "@/lib/run-engine";
 import { useSession } from "./providers";
 
@@ -22,15 +23,20 @@ type Done = Extract<EngineResult, { ok: true }>;
 /** One at a time gives each model's own time; all at once is faster, but models sharing a computer slow each other. */
 type Mode = "queue" | "parallel";
 
-/** One model's part in the current run. Times are performance.now() values and milliseconds. */
+/** One model's part in reading one page. Times are performance.now() values and milliseconds. */
 type Slot =
   | { engine: string; status: "waiting" }
   | { engine: string; status: "reading"; startedAt: number }
   | { engine: string; status: "done"; result: Done; ms: number; stages: Stage[]; diff: Diff | null }
   | { engine: string; status: "failed"; error: string };
 
-/** One press of Read. `totalMs` is set once every model has answered. */
-type Batch = { mode: Mode; slots: Slot[]; totalMs: number | null };
+/** How one page was read. `reference` is the correct text as it was when the read began; `totalMs` is set once every
+ * model has answered. */
+type Batch = { mode: Mode; reference: string; slots: Slot[]; totalMs: number | null };
+
+/** `started` holds every page this press of Read has begun. `reading` is the one in flight, or null while the next
+ * page is still being prepared. */
+type Run = { kind: "idle" } | { kind: "running"; started: ReadonlySet<string>; reading: string | null };
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 // A ticking clock can lag a start by one tick, so clamp rather than show -0.0.
@@ -43,14 +49,31 @@ export default function SideBySide() {
   const [readiness, setReadiness] = useState<Record<string, Readiness>>({});
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set([BROWSER_ENGINE.name]));
   const [mode, setMode] = useState<Mode>("queue");
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
-  const [correctText, setCorrectText] = useState("");
+  const [pages, dispatch] = useReducer(pagesReducer, []);
+  const [importer] = useState(() => createImporter(dispatch));
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [batches, setBatches] = useState<ReadonlyMap<string, Batch>>(new Map());
+  const [run, setRun] = useState<Run>({ kind: "idle" });
+  const [notices, setNotices] = useState<string[]>([]);
   const [showCorrect, setShowCorrect] = useState(false);
-  const [batch, setBatch] = useState<Batch | null>(null);
-  const [running, setRunning] = useState(false);
   const [highlight, setHighlight] = useState(true);
-  const runId = useRef(0);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const pageList = useRef<HTMLUListElement>(null);
+  // The read loop takes the page list from here, and sleeps on `wake` until the list next changes.
+  const latestPages = useRef(pages);
+  const wake = useRef<() => void>(undefined);
+
+  const page = pages.find((p) => p.id === selectedId) ?? null;
+  const batch = page ? batches.get(page.id) : undefined;
+  const readable = pages.filter((p) => p.image.kind !== "failed");
+  const running = run.kind === "running";
+  // Practice pages would slow down a timed read, so Read waits until every model, chosen or not, is ready.
+  const preparing = Object.values(readiness).some((r) => r.state === "warming");
+
+  useEffect(() => {
+    latestPages.current = pages;
+    wake.current?.();
+  }, [pages]);
 
   // As soon as the page opens, every available model loads and reads a practice page, so the first timed read is a
   // steady one. warmUp starts once per model per page load, so React running this effect twice doesn't double it.
@@ -69,16 +92,47 @@ export default function SideBySide() {
       .catch(() => setServerDown(true));
   }, []);
 
-  function chooseFile(next: File | null) {
-    if (!next) return;
-    setFile(next);
-    runId.current += 1; // results still coming for the old page are dropped
-    setBatch(null);
-    setRunning(false);
-    setPreview((old) => {
-      if (old) URL.revokeObjectURL(old);
-      return URL.createObjectURL(next);
+  // A file dropped just outside the drop area would otherwise open in the tab and lose every page.
+  useEffect(() => {
+    const keep = (e: globalThis.DragEvent) => {
+      if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
+    };
+    window.addEventListener("dragover", keep);
+    window.addEventListener("drop", keep);
+    return () => {
+      window.removeEventListener("dragover", keep);
+      window.removeEventListener("drop", keep);
+    };
+  }, []);
+
+  function addFiles(files: File[]) {
+    if (files.length === 0) return;
+    const { firstId, refused } = importer.add(files);
+    if (firstId) setSelectedId(firstId);
+    setNotices(refused.map((name) => `We couldn't add ${name}. Only photos, scans (PNG or JPG) and PDFs work.`));
+  }
+
+  function removePage(target: Page) {
+    const i = pages.indexOf(target);
+    const neighbour = pages[i + 1] ?? pages[i - 1];
+    importer.remove(target.id);
+    setBatches((m) => {
+      const next = new Map(m);
+      next.delete(target.id);
+      return next;
     });
+    if (target.id === selectedId) setSelectedId(neighbour?.id ?? null);
+    // The removed button took focus with it; hand focus to the neighbour so keyboard users keep their place.
+    const focusTarget = neighbour && pageList.current?.querySelector<HTMLElement>(`[data-page="${neighbour.id}"]`);
+    (focusTarget || fileInput.current)?.focus();
+  }
+
+  function removeAll() {
+    importer.clear();
+    setBatches(new Map());
+    setSelectedId(null);
+    setNotices([]);
+    fileInput.current?.focus();
   }
 
   const toggle = (name: string) =>
@@ -88,24 +142,20 @@ export default function SideBySide() {
       return next;
     });
 
-  // Practice pages would slow down a timed read, so Read waits until every model, chosen or not, is ready.
-  const preparing = Object.values(readiness).some((r) => r.state === "warming");
-
-  // One request per model, so each card fills in as soon as its model answers. A card's time runs from sending the
-  // request to getting the result back.
-  async function read() {
-    if (!file || selected.size === 0 || running || preparing) return;
-    const id = ++runId.current;
-    const live = () => runId.current === id;
-    const reference = correctText.trim();
-    const order = engines.map((e) => e.name).filter((n) => selected.has(n));
+  // One request per model, so each card fills in as soon as its model answers. A page removed mid-read loses its
+  // Batch, and `patch` then drops whatever its models still send back.
+  async function readPage(id: string, file: File, reference: string, order: string[], how: Mode) {
+    const patch = (f: (b: Batch) => Batch) =>
+      setBatches((m) => {
+        const b = m.get(id);
+        return b ? new Map(m).set(id, f(b)) : m;
+      });
+    const settle = (slot: Slot) =>
+      patch((b) => ({ ...b, slots: b.slots.map((s) => (s.engine === slot.engine ? slot : s)) }));
     const t0 = performance.now();
-    setBatch({ mode, totalMs: null, slots: order.map((engine) => ({ engine, status: "waiting" })) });
-    setRunning(true);
-    const settle = (slot: Slot) => {
-      if (!live()) return;
-      setBatch((b) => b && { ...b, slots: b.slots.map((s) => (s.engine === slot.engine ? slot : s)) });
-    };
+    setBatches((m) =>
+      new Map(m).set(id, { mode: how, reference, totalMs: null, slots: order.map((engine) => ({ engine, status: "waiting" })) }),
+    );
 
     const one = async (engine: string) => {
       settle({ engine, status: "reading", startedAt: performance.now() });
@@ -114,20 +164,50 @@ export default function SideBySide() {
       const diff = reference ? diffWords(reference, result.text) : null;
       settle({ engine, status: "done", result, ms: roundTripMs, stages, diff });
     };
+    if (how === "parallel") {
+      await Promise.all(order.map(one));
+    } else {
+      for (const engine of order) await one(engine);
+    }
+    patch((b) => ({ ...b, totalMs: performance.now() - t0 }));
+  }
+
+  // Reads pages in list order until none is left, so pages added during the read get read too.
+  async function read() {
+    if (running || preparing || readable.length === 0 || selected.size === 0) return;
+    const order = engines.map((e) => e.name).filter((n) => selected.has(n));
+    const how = mode;
+    const started = new Set<string>();
+    setBatches(new Map());
     try {
-      if (mode === "parallel") {
-        await Promise.all(order.map(one));
-      } else {
-        for (const engine of order) {
-          if (!live()) return;
-          await one(engine);
+      for (;;) {
+        const next = latestPages.current.find((p) => !started.has(p.id) && p.image.kind !== "failed");
+        if (!next) break;
+        if (next.image.kind !== "ready") {
+          setRun({ kind: "running", started: new Set(started), reading: null });
+          await new Promise<void>((resolve) => (wake.current = resolve));
+          continue;
         }
+        started.add(next.id);
+        setRun({ kind: "running", started: new Set(started), reading: next.id });
+        await readPage(next.id, next.image.file, next.groundTruth.trim(), order, how);
       }
-      if (live()) setBatch((b) => b && { ...b, totalMs: performance.now() - t0 });
     } finally {
       // Whatever happens, a read never leaves the page stuck on "Reading…".
-      if (live()) setRunning(false);
+      setRun({ kind: "idle" });
     }
+  }
+
+  function readLabel(): string {
+    if (run.kind === "idle") {
+      if (preparing) return "Getting models ready…";
+      const what = readable.length > 1 ? ` ${plural(readable.length, "page")}` : "";
+      return `Read${what} with ${plural(selected.size, "model")}`;
+    }
+    if (readable.length <= 1) return run.reading ? "Reading…" : "Preparing the page…";
+    // Finished pages still in the list, plus the one in progress, so removing a page mid-read shrinks both numbers.
+    const n = readable.filter((p) => run.started.has(p.id) && p.id !== run.reading).length + 1;
+    return `${run.reading ? "Reading" : "Preparing"} page ${n} of ${Math.max(n, readable.length)}…`;
   }
 
   const slots = batch?.slots ?? [];
@@ -139,6 +219,9 @@ export default function SideBySide() {
   const best = scores.length > 1 && leaders.length === 1 ? leaders[0].engine : null;
   const count = (status: Slot["status"]) => slots.filter((s) => s.status === status).length;
   const together = batch?.mode === "parallel" && slots.length > 1;
+  const reference = batch?.reference ?? "";
+  const waitingForEarlier = run.kind === "running" && page !== null && !run.started.has(page.id);
+  const showResults = page !== null && (batch !== undefined || waitingForEarlier);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -169,7 +252,7 @@ export default function SideBySide() {
         <div>
           <h1 className="text-2xl font-semibold">Compare OCR models</h1>
           <p className="text-muted-foreground">
-            Add one page, choose the models, and see what each one reads, side by side.
+            Add pages, choose the models, and see what each one reads, side by side.
           </p>
         </div>
 
@@ -180,8 +263,8 @@ export default function SideBySide() {
           </p>
         )}
 
-        <Card className="flex flex-row flex-wrap items-center gap-4 p-4">
-          <DocumentPicker file={file} preview={preview} onChoose={chooseFile} />
+        <Card className="flex min-w-0 flex-row flex-wrap items-center gap-4 p-4">
+          <PageAdder hasPages={pages.length > 0} inputRef={fileInput} onFiles={addFiles} onWarm={importer.warm} />
           <ModelPicker
             engines={engines}
             readiness={readiness}
@@ -198,122 +281,170 @@ export default function SideBySide() {
             aria-controls="correct-text"
             onClick={() => setShowCorrect((v) => !v)}
           >
-            {correctText.trim() ? "Correct text added" : "Add the correct text"}
+            {page?.groundTruth.trim() ? "Correct text added" : "Add the correct text"}
           </Button>
           <Button
             size="lg"
             className="ml-auto h-10 px-5 text-base hover:bg-primary-hover"
-            disabled={!file || selected.size === 0 || running || preparing}
+            disabled={running || preparing || readable.length === 0 || selected.size === 0}
             aria-describedby={preparing ? "getting-ready" : undefined}
             onClick={read}
           >
-            {running ? "Reading…" : preparing ? "Getting models ready…" : `Read with ${plural(selected.size, "model")}`}
+            {readLabel()}
           </Button>
           <p id="getting-ready" role="status" className="w-full text-sm text-muted-foreground empty:sr-only">
             {preparing &&
               "Each model reads a practice page first, so the times you see are steady. This takes a few seconds."}
           </p>
+          {notices.length > 0 && (
+            <ul role="status" className="flex w-full flex-col gap-1 text-sm text-warning-foreground">
+              {notices.map((n, i) => (
+                <li key={i} className="flex gap-2 rounded-md bg-warning p-2">
+                  <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
+                  {n}
+                </li>
+              ))}
+            </ul>
+          )}
+          {pages.length > 0 && (
+            <PageStrip
+              pages={pages}
+              selectedId={selectedId}
+              listRef={pageList}
+              status={(p) => {
+                if (run.kind === "running" && run.reading === p.id) return "reading";
+                if (batches.get(p.id)?.totalMs != null) return "read";
+                return null;
+              }}
+              onSelect={setSelectedId}
+              onRemove={removePage}
+              onRemoveAll={removeAll}
+            />
+          )}
         </Card>
 
         {showCorrect && (
           <Card id="correct-text" className="gap-2 p-4">
             <label htmlFor="correct-text-input" className="font-medium">
-              The correct text <span className="font-normal text-muted-foreground">(optional)</span>
+              The correct text
+              {page && pages.length > 1 && <> for {page.label}</>}{" "}
+              <span className="font-normal text-muted-foreground">(optional)</span>
             </label>
             <p id="correct-text-help" className="text-sm text-muted-foreground">
-              Paste what the page really says, and we&apos;ll count each model&apos;s mistakes.
+              {page
+                ? "Paste what the page really says, and we'll count each model's mistakes. Each page has its own."
+                : "Add a page first, then paste what it really says."}
             </p>
             <Textarea
               id="correct-text-input"
               lang="th"
               rows={6}
               aria-describedby="correct-text-help"
-              value={correctText}
-              onChange={(e) => setCorrectText(e.target.value)}
+              value={page?.groundTruth ?? ""}
+              disabled={!page || page.image.kind === "failed" || running}
+              onChange={(e) => page && dispatch({ type: "groundTruth", id: page.id, text: e.target.value })}
               className="border-input text-base"
             />
           </Card>
         )}
 
-        {batch && (
+        {showResults && page && (
           <section id="results" aria-labelledby="results-h" aria-busy={running} className="flex flex-col gap-5">
             <div>
               <h2 id="results-h" className="text-xl font-semibold">
                 How each model did
+                {pages.length > 1 && <span className="font-normal text-muted-foreground"> on {page.label}</span>}
               </h2>
               {/* No ticking clock in here: a live region that changes every 100 ms would talk over everything. */}
               <p role="status" className="text-sm text-muted-foreground">
-                {[
-                  count("done") && `${count("done")} finished`,
-                  count("reading") && `${count("reading")} reading`,
-                  count("waiting") && `${count("waiting")} waiting ${count("waiting") === 1 ? "its" : "their"} turn`,
-                  count("failed") && `${count("failed")} need${count("failed") === 1 ? "s" : ""} another try`,
-                  batch.totalMs !== null && totalLine(batch, done),
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
+                {batch
+                  ? [
+                      count("done") && `${count("done")} finished`,
+                      count("reading") && `${count("reading")} reading`,
+                      count("waiting") && `${count("waiting")} waiting ${count("waiting") === 1 ? "its" : "their"} turn`,
+                      count("failed") && `${count("failed")} need${count("failed") === 1 ? "s" : ""} another try`,
+                      batch.totalMs !== null && totalLine(batch, done),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")
+                  : "Waiting for the pages before it."}
               </p>
             </div>
 
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3">
-              {slots.map((slot) => (
-                <ScoreCard
-                  key={slot.engine}
-                  slot={slot}
-                  best={slot.engine === best}
-                  together={together}
-                  hasReference={!!correctText.trim()}
-                />
-              ))}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-              <h2 className="mr-auto text-xl font-semibold">The text</h2>
-              {correctText.trim() && (
-                <div className="flex items-center gap-2">
-                  <Switch
-                    id="highlight"
-                    checked={highlight}
-                    onCheckedChange={setHighlight}
-                    className="dark:data-unchecked:bg-input"
-                  />
-                  <label htmlFor="highlight" className="cursor-pointer text-sm">
-                    Highlight mistakes
-                  </label>
+            {batch && (
+              <>
+                <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3">
+                  {slots.map((slot) => (
+                    <ScoreCard
+                      key={slot.engine}
+                      slot={slot}
+                      best={slot.engine === best}
+                      together={together}
+                      hasReference={!!reference}
+                    />
+                  ))}
                 </div>
-              )}
-            </div>
-            {highlight && correctText.trim() && (
-              <p className="-mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted-foreground">
-                <span>
-                  <Missing>เพิ่ม</Missing> what the page says
-                </span>
-                <span>
-                  <Extra>เพิม</Extra> what the model wrote instead
-                </span>
-              </p>
-            )}
 
-            <div
-              tabIndex={0}
-              role="region"
-              aria-label="Text from each model. On small screens, scroll sideways."
-              className="relative overflow-x-auto rounded-xl"
-            >
-              <div className="grid auto-cols-[minmax(280px,1fr)] grid-flow-col gap-3">
-                {correctText.trim() && (
-                  <Card className="gap-2 bg-muted p-4">
-                    <h3 className="font-semibold">The correct text</h3>
-                    <p lang="th" className="text-[15px] leading-relaxed whitespace-pre-wrap">
-                      {correctText.trim()}
-                    </p>
-                  </Card>
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                  <h2 className="mr-auto text-xl font-semibold">The text</h2>
+                  {reference && (
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="highlight"
+                        checked={highlight}
+                        onCheckedChange={setHighlight}
+                        className="dark:data-unchecked:bg-input"
+                      />
+                      <label htmlFor="highlight" className="cursor-pointer text-sm">
+                        Highlight mistakes
+                      </label>
+                    </div>
+                  )}
+                </div>
+                {highlight && reference && (
+                  <p className="-mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted-foreground">
+                    <span>
+                      <Missing>เพิ่ม</Missing> what the page says
+                    </span>
+                    <span>
+                      <Extra>เพิม</Extra> what the model wrote instead
+                    </span>
+                  </p>
                 )}
-                {slots.map((slot) => (
-                  <TextColumn key={slot.engine} slot={slot} highlight={highlight} />
-                ))}
-              </div>
-            </div>
+
+                <div
+                  tabIndex={0}
+                  role="region"
+                  aria-label="The page and the text from each model. On small screens, scroll sideways."
+                  className="relative overflow-x-auto rounded-xl"
+                >
+                  <div className="grid auto-cols-[minmax(280px,1fr)] grid-flow-col gap-3">
+                    {page.image.kind === "ready" && (
+                      <Card className="gap-2 p-4">
+                        <h3 className="font-semibold">The page</h3>
+                        {/* eslint-disable-next-line @next/next/no-img-element -- a local object URL, nothing for next/image to optimise */}
+                        <img
+                          src={page.image.url}
+                          alt={`The page: ${page.label}`}
+                          className="w-full rounded border bg-white"
+                        />
+                      </Card>
+                    )}
+                    {reference && (
+                      <Card className="gap-2 bg-muted p-4">
+                        <h3 className="font-semibold">The correct text</h3>
+                        <p lang="th" className="text-[15px] leading-relaxed whitespace-pre-wrap">
+                          {reference}
+                        </p>
+                      </Card>
+                    )}
+                    {slots.map((slot) => (
+                      <TextColumn key={slot.engine} slot={slot} highlight={highlight} />
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
           </section>
         )}
       </main>
@@ -321,60 +452,161 @@ export default function SideBySide() {
   );
 }
 
-function DocumentPicker({
-  file,
-  preview,
-  onChoose,
+/** The drop area and file picker. Takes many photos, scans and PDFs at once; each PDF page becomes its own page. */
+function PageAdder({
+  hasPages,
+  inputRef,
+  onFiles,
+  onWarm,
 }: {
-  file: File | null;
-  preview: string | null;
-  onChoose: (f: File | null) => void;
+  hasPages: boolean;
+  inputRef: React.Ref<HTMLInputElement>;
+  onFiles: (files: File[]) => void;
+  onWarm: () => void;
 }) {
   const inputId = useId();
   const [dragging, setDragging] = useState(false);
+  const onDrag = (e: DragEvent<HTMLElement>, over: boolean) => {
+    e.preventDefault();
+    // dragleave also fires when moving onto a child of the drop area.
+    if (!over && e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setDragging(over);
+  };
   return (
     <label
       htmlFor={inputId}
-      onDragOver={(e) => {
-        e.preventDefault();
-        setDragging(true);
+      onPointerEnter={onWarm}
+      onFocus={onWarm}
+      onDragEnter={(e) => {
+        onWarm();
+        onDrag(e, true);
       }}
-      onDragLeave={() => setDragging(false)}
+      onDragOver={(e) => onDrag(e, true)}
+      onDragLeave={(e) => onDrag(e, false)}
       onDrop={(e) => {
         e.preventDefault();
         setDragging(false);
-        onChoose(e.dataTransfer.files[0] ?? null);
+        onFiles([...e.dataTransfer.files]);
       }}
       className={`flex min-h-14 flex-1 basis-72 cursor-pointer items-center gap-3 rounded-lg border-2 border-dashed p-2 pr-4 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring ${
         dragging ? "border-primary bg-accent" : "border-input"
       }`}
     >
       <input
+        ref={inputRef}
         id={inputId}
         type="file"
-        accept="image/png,image/jpeg"
+        multiple
+        accept="image/*,application/pdf"
         className="sr-only"
-        onChange={(e) => onChoose(e.target.files?.[0] ?? null)}
+        onChange={(e) => {
+          const files = [...(e.target.files ?? [])];
+          e.target.value = "";
+          onFiles(files);
+        }}
       />
-      {preview ? (
-        // eslint-disable-next-line @next/next/no-img-element -- a local object URL, nothing for next/image to optimise
-        <img src={preview} alt="" className="h-12 w-20 rounded border object-cover" />
-      ) : (
-        <FileUp aria-hidden className="size-6 text-primary" />
-      )}
+      <FileUp aria-hidden className="size-6 shrink-0 text-primary" />
       <span className="flex min-w-0 flex-col">
-        <span className="truncate font-medium">{file ? file.name : "Drag a page here, or choose a file"}</span>
+        <span className="font-medium">
+          {hasPages ? "Drag more pages here, or add files" : "Drag pages here, or choose files"}
+        </span>
         <span className="text-sm text-muted-foreground">
-          {file ? (
-            <>
-              <span className="text-primary underline underline-offset-4">Change document</span>
-            </>
-          ) : (
-            "Photo or scan, PNG or JPG, one page"
-          )}
+          Photos, scans (PNG or JPG) or PDFs. Each PDF page becomes its own page.
         </span>
       </span>
     </label>
+  );
+}
+
+/** The pages added so far, in reading order. Choosing one shows its results; each can be removed at any time. */
+function PageStrip({
+  pages,
+  selectedId,
+  listRef,
+  status,
+  onSelect,
+  onRemove,
+  onRemoveAll,
+}: {
+  pages: Page[];
+  selectedId: string | null;
+  listRef: React.Ref<HTMLUListElement>;
+  status: (p: Page) => "reading" | "read" | null;
+  onSelect: (id: string) => void;
+  onRemove: (p: Page) => void;
+  onRemoveAll: () => void;
+}) {
+  return (
+    <div className="flex w-full min-w-0 flex-col gap-2">
+      <div className="flex items-center gap-3">
+        <h2 className="text-sm font-semibold">{plural(pages.length, "page")}</h2>
+        <Button variant="link" className="h-8 px-1 text-sm" onClick={onRemoveAll}>
+          Remove all
+        </Button>
+      </div>
+      <ul ref={listRef} aria-label="Pages" className="flex gap-2 overflow-x-auto pb-1">
+        {pages.map((p) => {
+          const current = p.id === selectedId;
+          const state = status(p);
+          return (
+            <li
+              key={p.id}
+              className={`flex w-60 shrink-0 items-stretch rounded-lg border ${
+                current ? "border-primary bg-accent" : "border-input"
+              }`}
+            >
+              <button
+                type="button"
+                data-page={p.id}
+                aria-current={current || undefined}
+                onClick={() => onSelect(p.id)}
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-l-lg p-1.5 text-left hover:bg-muted"
+              >
+                <Thumbnail page={p} />
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate text-sm font-medium">{p.label}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {p.image.kind === "preparing" && "Preparing…"}
+                    {p.image.kind === "failed" && <span className="text-destructive">{p.image.reason}</span>}
+                    {p.image.kind === "ready" && state === "reading" && "Reading…"}
+                    {p.image.kind === "ready" && state === "read" && (
+                      <span className="inline-flex items-center gap-1 text-success">
+                        <Check aria-hidden className="size-3" />
+                        Read
+                      </span>
+                    )}
+                  </span>
+                </span>
+              </button>
+              <button
+                type="button"
+                aria-label={`Remove ${p.label}`}
+                onClick={() => onRemove(p)}
+                className="grid w-9 shrink-0 place-items-center rounded-r-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <X aria-hidden className="size-4" />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function Thumbnail({ page }: { page: Page }) {
+  if (page.image.kind === "ready") {
+    // eslint-disable-next-line @next/next/no-img-element -- a local object URL, nothing for next/image to optimise
+    return <img src={page.image.url} alt="" className="h-12 w-10 shrink-0 rounded border bg-white object-cover object-top" />;
+  }
+  return (
+    <span aria-hidden className="grid h-12 w-10 shrink-0 place-items-center rounded border bg-muted text-muted-foreground">
+      {page.image.kind === "preparing" ? (
+        <Loader2 className="size-4 animate-spin motion-reduce:animate-none" />
+      ) : (
+        <TriangleAlert className="size-4 text-destructive" />
+      )}
+    </span>
   );
 }
 

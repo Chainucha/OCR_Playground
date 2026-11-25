@@ -5,7 +5,7 @@ description: Launch an isolated OCR Playground (Next.js web app with local Cogni
 
 # Verify OCR Playground
 
-OCR Playground has three user surfaces. The primary one is the web app: sign in, choose a page image, pick engines, run, and compare results. The other two are the `ocr` CLI and the engine HTTP API in `engines/`. The feature map in `features/README.md` lists what to verify and how. Read it before driving anything.
+OCR Playground has three user surfaces. The primary one is the web app: sign in, add page images or PDFs, pick engines, run, and compare results. The other two are the `ocr` CLI and the engine HTTP API in `engines/`. The feature map in `features/README.md` lists what to verify and how. Read it before driving anything.
 
 All commands run from the repo root. Paths use forward slashes, including on Windows.
 
@@ -62,15 +62,16 @@ Stable handles, all in the current code:
 | Sign-in submit | `button[type="submit"]` |
 | Signed-in marker | `main` (exists only after sign-in) |
 | Sign out | `header button` |
-| Page image input | `input[type=file]` |
+| Page file input (images, PDFs, multiple) | `input[type=file]` (inside the dashed drop area, a `label`) |
+| Page list | `ul[aria-label="Pages"]`: per page a select button (`data-page`, `aria-current` on the selected one, label in its first `span`) and `Remove <label>`; `Remove all` above it |
 | Model picker | button named `N model(s)` (opens a popover of checkboxes) |
 | How to run | radios `One at a time` / `All at once` in the same popover |
 | Warm-up note | `#getting-ready` (empty once every model is ready) |
-| Correct text (ground truth) | button `Add the correct text`, then `#correct-text-input` |
-| Read button | button whose name starts `Read with` |
-| Results | `#results`; progress line `#results [role=status]` |
+| Correct text (ground truth) | button `Add the correct text`, then `#correct-text-input` (belongs to the selected page) |
+| Read button | the toolbar button whose name starts `Read`, `Reading`, `Preparing` or `Getting` |
+| Results | `#results` for the selected page; progress line `#results [role=status]` |
 | Score cards | `#results [data-slot=card]` outside `[role=region]` (model name in `h3`) |
-| Text columns | `[role=region] [data-slot=card]`; mistakes are `del` (page says) and `ins` (model wrote) |
+| Text columns | `[role=region] [data-slot=card]`: `The page` (image), `The correct text`, then one per model; mistakes are `del` (page says) and `ins` (model wrote) |
 | A model failed | `#results [role=alert]` in its score card |
 | API unreachable notice | `main > p[role=status]` |
 

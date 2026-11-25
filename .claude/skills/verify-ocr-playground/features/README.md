@@ -38,6 +38,6 @@ Each feature file starts with an H1 title and one paragraph describing the user-
 ## Features
 
 - [Sign in](./sign-in.md). Invite-only email sign-in, no sign-up, and sign-out.
-- [Run OCR](./run-ocr.md). Choose a page, pick engines, run, and read text, latency, and CER per engine.
+- [Run OCR](./run-ocr.md). Add photos, scans or PDFs (click or drag and drop), remove pages, pick models and how to run them, read, and compare each model's accuracy, mistakes, time and text for each page, side by side.
 - [Engine CLI](./cli.md). `ocr engines`, `run`, `bench`, `download`, and `synth` from a terminal.
 - [Engine API](./engine-api.md). `GET /engines` and `POST /ocr`, which the web app calls.
