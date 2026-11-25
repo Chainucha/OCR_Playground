@@ -11,6 +11,8 @@ from ocr_playground.synth.document import Document
 from ocr_playground.synth.render import LayoutError, MissingGlyph, default_fonts, degrade, render
 from ocr_playground.synth.templates import TEMPLATES
 
+__all__ = ["KINDS", "Generated", "Quality", "generate"]
+
 Quality = Literal["clean", "scan", "mixed"]
 KINDS = list(TEMPLATES)
 

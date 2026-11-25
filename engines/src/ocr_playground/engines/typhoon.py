@@ -2,8 +2,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from ocr_playground.config import env, require_env, require_import
-from ocr_playground.result import OcrResult
+from ocr_playground.engines._env import env, require_env, require_import
+from ocr_playground.engines.result import OcrResult
 
 NAME = "typhoon"
 

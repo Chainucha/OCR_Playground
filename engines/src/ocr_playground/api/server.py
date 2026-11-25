@@ -10,9 +10,8 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
 
-from ocr_playground.engines import EngineUnavailable, engine_names, engine_status, get_engine
-from ocr_playground.metrics import cer
-from ocr_playground.result import OcrResult, Stage
+from ocr_playground.engines import EngineUnavailable, OcrResult, Stage, engine_names, engine_status, get_engine
+from ocr_playground.scoring import cer
 
 app = FastAPI(title="OCR Playground engines")
 app.add_middleware(
