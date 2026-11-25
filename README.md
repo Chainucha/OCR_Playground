@@ -109,7 +109,7 @@ All data is made up: names and companies are combined from word lists, emails us
 
 ## Data rules
 
-Only synthetic or redacted documents go into this playground: no real ID cards, invoices, or customer data, in git or in AWS. Use `ocr synth` for test pages.
+Only synthetic or redacted documents go into this playground: no real ID cards, invoices, or customer data, in git or in AWS. Use `ocr synth` for test pages. Keep any real document you need to try locally in `data/sensitive/`, which git ignores, and never upload it to the hosted site.
 
 ## Decisions and open questions
 

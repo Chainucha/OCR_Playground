@@ -1,7 +1,7 @@
 // Web Worker that owns the ONNX sessions and runs readPage, so OCR never blocks the page's main thread.
 
 import { cer } from "@/lib/cer";
-import type { Line } from "@/lib/ocr-api";
+import { type Line, type Stage, WARMUP_RUNS } from "@/lib/ocr-api";
 import { type ModelName, readPage } from "./ocr";
 
 // Pinned to the Hugging Face commit the Python engine was checked against, so iApp's updates can't change results
@@ -12,7 +12,7 @@ const MODEL_URL =
 
 export type OcrRequest = { id: number; file: File; groundTruth: string };
 export type OcrResponse = { id: number } & (
-  | { ok: true; text: string; latency_ms: number; lines: Line[]; cer: number | null }
+  | { ok: true; text: string; latency_ms: number; lines: Line[]; cer: number | null; cold: boolean; stages: Stage[] }
   | { ok: false; error: string }
 );
 
@@ -20,6 +20,9 @@ type Ort = typeof import("onnxruntime-web/wasm");
 type Loaded = { ort: Ort; sessions: Record<ModelName, import("onnxruntime-web/wasm").InferenceSession>; chars: string[] };
 
 let loading: Promise<Loaded> | null = null;
+// Pages this worker has finished. The first WARMUP_RUNS read slow while the ONNX sessions and the browser's
+// WebAssembly and JavaScript compilers warm up.
+let runs = 0;
 
 async function fetchOk(path: string): Promise<Response> {
   const res = await fetch(`${MODEL_URL}/${path}`);
@@ -50,24 +53,43 @@ async function decode(file: File): Promise<ImageData> {
 
 /** OCRs one image. The first call downloads the models; latency counts only the OCR. */
 async function ocr({ file, groundTruth }: OcrRequest): Promise<Omit<Extract<OcrResponse, { ok: true }>, "id">> {
+  const waiting = performance.now();
   loading ??= load();
   const { ort, sessions, chars } = await loading.catch((err) => {
     loading = null;
     throw err;
   });
-  const img = await decode(file);
+  const cold = runs < WARMUP_RUNS;
+  // The engine's own time runs from opening the image to the assembled text, as it does for the Python engine.
   const start = performance.now();
+  const img = await decode(file);
+  const decoded = performance.now();
   const page = await readPage(img.data, img.width, img.height, async (model, input, dims) => {
     const s = sessions[model];
     const out = (await s.run({ [s.inputNames[0]]: new ort.Tensor("float32", input, dims) }))[s.outputNames[0]];
     return { data: out.data as Float32Array, dims: out.dims };
   }, chars, true);
+  const latency_ms = performance.now() - start;
+  runs += 1;
+  const { prepare, detect, read, assemble } = page.timing;
+  const stages: Stage[] = [
+    { name: "Wait to start", ms: start - waiting },
+    { name: "Open image", ms: decoded - start + prepare },
+    { name: "Find text lines", ms: detect },
+    { name: "Read text", ms: read },
+    { name: "Assemble text", ms: assemble },
+  ];
+  const scoring = performance.now();
+  const score = groundTruth.trim() ? cer(groundTruth, page.text) : null;
+  if (score !== null) stages.push({ name: "Score accuracy", ms: performance.now() - scoring });
   return {
     ok: true,
+    cold,
     text: page.text,
-    latency_ms: performance.now() - start,
+    latency_ms,
     lines: page.lines.map((l) => ({ text: l.text, confidence: l.confidence, box: l.box })),
-    cer: groundTruth.trim() ? cer(groundTruth, page.text) : null,
+    cer: score,
+    stages,
   };
 }
 

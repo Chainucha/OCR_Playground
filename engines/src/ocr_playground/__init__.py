@@ -1,3 +1,3 @@
-from ocr_playground.result import Line, OcrResult
+from ocr_playground.result import Line, OcrResult, Stage
 
-__all__ = ["Line", "OcrResult"]
+__all__ = ["Line", "OcrResult", "Stage"]

@@ -1,28 +1,89 @@
 "use client";
 
 import { type DragEvent, useEffect, useReducer, useRef, useState } from "react";
-import { type EngineResult, type EngineStatus, OCR_API_URL, listEngines, runOcr } from "@/lib/ocr-api";
-import { BROWSER_ENGINE, runInBrowser } from "@/lib/openthai/browser";
+import { type EngineStatus, OCR_API_URL, type Stage, listEngines } from "@/lib/ocr-api";
+import { BROWSER_ENGINE } from "@/lib/openthai/browser";
 import { type Page, createImporter, pagesReducer } from "@/lib/pages";
+import { type Readiness, type Timed, runEngine, warmUp } from "@/lib/run-engine";
 import styles from "./page.module.css";
 import { useSession } from "./providers";
 
-/** `started` holds every page this run has begun reading. `reading` is the one in flight, or null while the next
- * page is still preparing. */
+type Mode = "queue" | "parallel";
+
+const MODES: { value: Mode; label: string; hint: string }[] = [
+  { value: "queue", label: "One at a time", hint: "Each engine runs alone, so its time is accurate." },
+  {
+    value: "parallel",
+    label: "All at once",
+    hint: "Faster. Engines that share a computer slow each other down, so times can read high.",
+  },
+];
+
+/** How one page was read: the mode, which engines in card order, when each started (performance.now()), and what
+ * each returned. `wallMs` is set once every engine has answered. */
+type PageRun = {
+  mode: Mode;
+  names: string[];
+  t0: number;
+  startedAt: Record<string, number>;
+  results: Record<string, Timed>;
+  wallMs: number | null;
+};
+
+/** `started` holds every page this press of Run has begun reading. `reading` is the one in flight, or null while the
+ * next page is still preparing. */
 type Run = { kind: "idle" } | { kind: "running"; started: ReadonlySet<string>; reading: string | null };
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+// The ticking clock can lag an engine's start by one tick, so clamp rather than show -0.0 s.
+const seconds = (ms: number, digits = 1) => (Math.max(0, ms) / 1000).toFixed(digits);
+
+/** A collapsed Breakdown: each stage of one run as a row, with its time and its share of the request-to-result time. */
+function StageBreakdown({ stages, total }: { stages: Stage[]; total: number }) {
+  const share = (ms: number) => (total > 0 ? (100 * ms) / total : 0);
+  return (
+    <details className={styles.breakdown}>
+      <summary>Breakdown · {seconds(total, 2)} s</summary>
+      <table className={styles.stages}>
+        <tbody>
+          {stages.map((s) => (
+            <tr key={s.name}>
+              <th scope="row">{s.name}</th>
+              <td className={styles.bar} aria-hidden="true">
+                <span style={{ width: `${share(s.ms)}%` }} />
+              </td>
+              <td>{seconds(s.ms, 2)} s</td>
+              <td>{Math.round(share(s.ms))}%</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th scope="row">Request to result</th>
+            <td />
+            <td>{seconds(total, 2)} s</td>
+            <td>100%</td>
+          </tr>
+        </tfoot>
+      </table>
+    </details>
+  );
+}
 
 export default function Playground() {
   const { email, signOut } = useSession();
   const [engines, setEngines] = useState<EngineStatus[] | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [readiness, setReadiness] = useState<Record<string, Readiness>>({});
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set([BROWSER_ENGINE.name]));
   const [pages, dispatch] = useReducer(pagesReducer, []);
   const [importer] = useState(() => createImporter(dispatch));
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [results, setResults] = useState<ReadonlyMap<string, EngineResult[]>>(new Map());
+  const [mode, setMode] = useState<Mode>("queue");
+  const [runs, setRuns] = useState<ReadonlyMap<string, PageRun>>(new Map());
   const [run, setRun] = useState<Run>({ kind: "idle" });
+  const [now, setNow] = useState(0);
   const [notices, setNotices] = useState<string[]>([]);
   const [dragging, setDragging] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -32,20 +93,30 @@ export default function Playground() {
   const wake = useRef<() => void>(undefined);
 
   const page = pages.find((p) => p.id === selectedId) ?? null;
-  const pageResults = page ? results.get(page.id) : undefined;
+  const pageRun = page ? runs.get(page.id) : undefined;
   const readable = pages.filter((p) => p.image.kind !== "failed");
   const running = run.kind === "running";
+  // Practice pages would slow down a timed run, so Run waits until every engine, selected or not, is done warming up.
+  const warmingUp = Object.values(readiness).some((r) => r.state === "warming");
 
   useEffect(() => {
     latestPages.current = pages;
     wake.current?.();
   }, [pages]);
 
+  // As soon as the page opens, every available engine downloads or loads its model and reads a practice page until it
+  // is past warm-up, so the first timed run is already a steady one.
   useEffect(() => {
+    const prepare = (name: string, runsSoFar: number) => {
+      setReadiness((r) => ({ ...r, [name]: { state: "warming" } }));
+      void warmUp(name, runsSoFar).then((state) => setReadiness((r) => ({ ...r, [name]: state })));
+    };
+    prepare(BROWSER_ENGINE.name, 0);
     listEngines()
       .then((list) => {
         setEngines(list);
         setSelected((s) => new Set([...s, ...list.filter((e) => e.available).map((e) => e.name)]));
+        for (const e of list) if (e.available) prepare(e.name, e.runs);
       })
       .catch(() =>
         setApiError(
@@ -53,6 +124,12 @@ export default function Playground() {
         ),
       );
   }, []);
+
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(() => setNow(performance.now()), 100);
+    return () => clearInterval(timer);
+  }, [running]);
 
   // A file dropped just outside the drop zone would otherwise open in the tab and lose every page.
   useEffect(() => {
@@ -91,7 +168,7 @@ export default function Playground() {
     const i = pages.indexOf(target);
     const neighbour = pages[i + 1] ?? pages[i - 1];
     importer.remove(target.id);
-    setResults((r) => {
+    setRuns((r) => {
       const next = new Map(r);
       next.delete(target.id);
       return next;
@@ -104,7 +181,7 @@ export default function Playground() {
 
   function removeAll() {
     importer.clear();
-    setResults(new Map());
+    setRuns(new Map());
     setSelectedId(null);
     setNotices([]);
     fileInput.current?.focus();
@@ -117,44 +194,61 @@ export default function Playground() {
       return next;
     });
 
-  async function readPage(file: File, groundTruth: string, names: string[]): Promise<EngineResult[]> {
-    const remote = names.filter((name) => name !== BROWSER_ENGINE.name);
-    const [local, api] = await Promise.all([
-      names.includes(BROWSER_ENGINE.name) ? runInBrowser(file, groundTruth).then((r) => [r]) : [],
-      remote.length
-        ? runOcr(file, remote, groundTruth).catch((err) => {
-            setApiError(String(err));
-            return [];
-          })
-        : [],
-    ]);
-    return [...local, ...api];
+  // One request per engine, so each card fills in as soon as its engine answers. A page removed mid-read loses its
+  // PageRun, and `patch` then drops whatever its engines still send back.
+  async function readPage(id: string, file: File, groundTruth: string, names: string[], how: Mode) {
+    const patch = (f: (r: PageRun) => PageRun) =>
+      setRuns((m) => {
+        const r = m.get(id);
+        return r ? new Map(m).set(id, f(r)) : m;
+      });
+    const t0 = performance.now();
+    setNow(t0);
+    setRuns((m) => new Map(m).set(id, { mode: how, names, t0, startedAt: {}, results: {}, wallMs: null }));
+    const one = async (name: string) => {
+      const start = performance.now();
+      patch((r) => ({ ...r, startedAt: { ...r.startedAt, [name]: start } }));
+      const timed = await runEngine(name, file, groundTruth);
+      patch((r) => ({ ...r, results: { ...r.results, [name]: timed } }));
+    };
+    if (how === "parallel") {
+      await Promise.all(names.map(one));
+    } else {
+      for (const name of names) await one(name);
+    }
+    const wallMs = performance.now() - t0;
+    patch((r) => ({ ...r, wallMs }));
   }
 
   // Reads pages in list order until none is left unread, so pages added during the run get read too.
   async function onRun() {
-    if (running || readable.length === 0 || selected.size === 0) return;
+    if (running || warmingUp || readable.length === 0 || selected.size === 0) return;
     const names = [...selected];
+    const how = mode;
     const started = new Set<string>();
-    setResults(new Map());
-    for (;;) {
-      const next = latestPages.current.find((p) => !started.has(p.id) && p.image.kind !== "failed");
-      if (!next) break;
-      if (next.image.kind !== "ready") {
-        setRun({ kind: "running", started: new Set(started), reading: null });
-        await new Promise<void>((resolve) => (wake.current = resolve));
-        continue;
+    setRuns(new Map());
+    try {
+      for (;;) {
+        const next = latestPages.current.find((p) => !started.has(p.id) && p.image.kind !== "failed");
+        if (!next) break;
+        if (next.image.kind !== "ready") {
+          setRun({ kind: "running", started: new Set(started), reading: null });
+          await new Promise<void>((resolve) => (wake.current = resolve));
+          continue;
+        }
+        started.add(next.id);
+        setRun({ kind: "running", started: new Set(started), reading: next.id });
+        await readPage(next.id, next.image.file, next.groundTruth, names, how);
       }
-      started.add(next.id);
-      setRun({ kind: "running", started: new Set(started), reading: next.id });
-      const r = await readPage(next.image.file, next.groundTruth, names);
-      if (latestPages.current.some((p) => p.id === next.id)) setResults((m) => new Map(m).set(next.id, r));
+    } finally {
+      // Whatever happens, a run never leaves the page stuck on "Reading…".
+      setRun({ kind: "idle" });
     }
-    setRun({ kind: "idle" });
   }
 
   function runLabel() {
     if (run.kind === "idle") {
+      if (warmingUp) return "Getting engines ready…";
       return `Run ${plural(selected.size, "engine")}${readable.length > 1 ? ` on ${plural(readable.length, "page")}` : ""}`;
     }
     const total = run.started.size + readable.filter((p) => !run.started.has(p.id)).length;
@@ -163,14 +257,27 @@ export default function Playground() {
       : `Preparing page ${run.started.size + 1} of ${total}…`;
   }
 
+  function summary(r: PageRun): string {
+    const done = r.names.map((name) => r.results[name]).filter((t): t is Timed => t !== undefined);
+    if (r.wallMs === null) return `${done.length} of ${plural(r.names.length, "engine")} done · ${seconds(now - r.t0)} s`;
+    if (r.mode === "queue") return `${plural(r.names.length, "engine")} one at a time: total ${seconds(r.wallMs)} s`;
+    const timeSum = done.reduce((sum, t) => sum + (t.result.ok ? t.roundTripMs : 0), 0);
+    return `${plural(r.names.length, "engine")} at once: total ${seconds(r.wallMs)} s, engine times add up to ${seconds(timeSum)} s`;
+  }
+
   function emptyResultsText() {
     if (!page) return "Results appear here, one column per engine.";
     if (page.image.kind === "failed") return "This file can't be read. Remove it from the list.";
-    if (run.kind === "running") {
-      if (page.id === run.reading) return "Reading this page…";
-      if (!run.started.has(page.id)) return "Waiting for earlier pages…";
-    }
+    if (run.kind === "running" && !run.started.has(page.id)) return "Waiting for earlier pages…";
     return "Run the engines to read this page.";
+  }
+
+  function engineNote(e: EngineStatus): string {
+    if (!e.available) return e.reason ?? "";
+    const r = readiness[e.name];
+    if (r?.state === "warming") return "Getting ready: loading the model and reading a practice page…";
+    if (r?.state === "failed") return `Couldn't get ready: ${r.error}`;
+    return e.description;
   }
 
   return (
@@ -248,7 +355,7 @@ export default function Playground() {
                         {p.image.kind === "preparing" && <span className={styles.visuallyHidden}>{" Preparing"}</span>}
                         {p.image.kind === "failed" && <span className={styles.pageError}>{p.image.reason}</span>}
                       </span>
-                      {results.has(p.id) && <span className={styles.done}>Done</span>}
+                      {runs.get(p.id)?.wallMs != null && <span className={styles.done}>Done</span>}
                     </button>
                     <button
                       type="button"
@@ -270,7 +377,7 @@ export default function Playground() {
           )}
           {page?.image.kind === "preparing" && <p className={styles.previewPreparing}>Preparing page…</p>}
 
-          <fieldset className={styles.engines}>
+          <fieldset className={styles.choices}>
             <legend>Engines</legend>
             {[BROWSER_ENGINE, ...(engines ?? [])].map((e) => (
               <label key={e.name} className={e.available ? undefined : styles.disabled} title={e.reason ?? e.description}>
@@ -282,11 +389,24 @@ export default function Playground() {
                 />
                 <span>
                   <strong>{e.name}</strong>
-                  <small>{e.available ? e.description : e.reason}</small>
+                  <small aria-live="polite">{engineNote(e)}</small>
                 </span>
               </label>
             ))}
             {engines === null && !apiError && <p className={styles.muted}>Loading API engines…</p>}
+          </fieldset>
+
+          <fieldset className={styles.choices} disabled={running}>
+            <legend>How to run</legend>
+            {MODES.map((m) => (
+              <label key={m.value}>
+                <input type="radio" name="run-mode" checked={mode === m.value} onChange={() => setMode(m.value)} />
+                <span>
+                  <strong>{m.label}</strong>
+                  <small>{m.hint}</small>
+                </span>
+              </label>
+            ))}
           </fieldset>
 
           <label className={styles.gt}>
@@ -301,30 +421,62 @@ export default function Playground() {
             />
           </label>
 
-          <button type="button" className={styles.run} disabled={running || readable.length === 0 || selected.size === 0} onClick={onRun}>
+          <button
+            type="button"
+            className={styles.run}
+            disabled={running || warmingUp || readable.length === 0 || selected.size === 0}
+            onClick={onRun}
+          >
             {runLabel()}
           </button>
         </section>
 
         <section className={styles.results} aria-label="Results" aria-busy={running}>
           {page && <h2 className={styles.resultsTitle}>{page.label}</h2>}
-          {!pageResults?.length && <p className={styles.muted}>{emptyResultsText()}</p>}
+          {pageRun ? <p className={styles.wall}>{summary(pageRun)}</p> : <p className={styles.muted}>{emptyResultsText()}</p>}
           <div className={styles.cards}>
-            {pageResults?.map((r) => (
-              <article key={r.engine} className={styles.result}>
-                <header>
-                  <h2>{r.engine}</h2>
-                  {r.ok && (
-                    <p className={styles.stats}>
-                      {Math.round(r.latency_ms)} ms
-                      {r.cer !== null && <> · CER {(r.cer * 100).toFixed(1)}%</>}
-                      {" · "}{r.format}
-                    </p>
-                  )}
-                </header>
-                {r.ok ? <pre>{r.text}</pre> : <p className={styles.error}>{r.error}</p>}
-              </article>
-            ))}
+            {pageRun?.names.map((name) => {
+              const timed = pageRun.results[name];
+              const start = pageRun.startedAt[name];
+              if (!timed) {
+                return (
+                  <article key={name} className={styles.result} aria-busy="true">
+                    <header>
+                      <h2>{name}</h2>
+                      <p className={styles.stats}>
+                        {start === undefined ? "waiting for its turn" : `running… ${seconds(now - start)} s`}
+                      </p>
+                    </header>
+                  </article>
+                );
+              }
+              const r = timed.result;
+              const shared = pageRun.mode === "parallel" && pageRun.names.length > 1;
+              return (
+                <article key={name} className={styles.result}>
+                  <header>
+                    <h2>{r.engine}</h2>
+                    {r.ok && (
+                      <>
+                        <p className={styles.stats}>
+                          {seconds(timed.roundTripMs, 2)} s
+                          {r.cer !== null && <> · CER {(r.cer * 100).toFixed(1)}%</>}
+                          {" · "}{r.format}
+                        </p>
+                        {r.cold && (
+                          <p className={styles.note}>Ran during the engine&apos;s warm-up, so it may read high.</p>
+                        )}
+                        {shared && (
+                          <p className={styles.note}>Timed while other engines ran at once, so it may read high.</p>
+                        )}
+                      </>
+                    )}
+                  </header>
+                  {r.ok && <StageBreakdown stages={timed.stages} total={timed.roundTripMs} />}
+                  {r.ok ? <pre>{r.text}</pre> : <p className={styles.error}>{r.error}</p>}
+                </article>
+              );
+            })}
           </div>
         </section>
       </main>

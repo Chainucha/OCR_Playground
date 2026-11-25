@@ -1,6 +1,6 @@
 models/
 results/
-data/private/
+data/sensitive/
 .env
 .venv/
 __pycache__/

@@ -17,7 +17,17 @@ export type RunModel = (
 ) => Promise<{ data: Float32Array; dims: readonly number[] }>;
 
 export type PageLine = { text: string; confidence: number; box: Quad };
-export type PageResult = { text: string; lines: PageLine[]; dropped: (PageLine & { reason: string })[] };
+/**
+ * Milliseconds per step, split where LineOCR.read splits its det_ms and rec_ms: `prepare` is the colour conversion,
+ * `detect` finding the lines, `read` splitting, recognising and ordering them, `assemble` filtering and joining them.
+ */
+export type PageTiming = { prepare: number; detect: number; read: number; assemble: number };
+export type PageResult = {
+  text: string;
+  lines: PageLine[];
+  dropped: (PageLine & { reason: string })[];
+  timing: PageTiming;
+};
 
 const REC = { height: 48, maxW: 3200, batch: 16 };
 const SPLIT_GAP = 1.2;
@@ -274,18 +284,23 @@ function readingOrder(boxes: Quad[]): number[][] {
 export async function readPage(
   rgba: Uint8ClampedArray, width: number, height: number, run: RunModel, chars: string[], rec2: boolean,
 ): Promise<PageResult> {
+  const t0 = performance.now();
   const { bgr, gray } = splitRgba(rgba, width, height);
+  const t1 = performance.now();
   let found = await detect(bgr, run);
   if (!found.length && height <= 200 && width >= 1.5 * height) {
     // A single line or field crop: read the whole image as one line.
     found = [[[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]]];
   }
+  const t2 = performance.now();
   const { boxes, reads } = await readLines(gray, found, run, chars, rec2);
+  const rowOrder = readingOrder(boxes);
+  const t3 = performance.now();
   const hmed = boxes.length ? lineHeight(boxes) : 1;
   const lines: PageLine[] = [];
   const dropped: PageResult["dropped"] = [];
   const rows: string[] = [];
-  for (const row of readingOrder(boxes)) {
+  for (const row of rowOrder) {
     const parts: string[] = [];
     for (const i of row) {
       const line = { text: cleanLine(reads[i].text), confidence: Math.round(reads[i].conf * 1e4) / 1e4, box: boxes[i] };
@@ -299,5 +314,7 @@ export async function readPage(
     }
     if (parts.length) rows.push(parts.join(" "));
   }
-  return { text: rows.join("\n"), lines, dropped };
+  const text = rows.join("\n");
+  const timing = { prepare: t1 - t0, detect: t2 - t1, read: t3 - t2, assemble: performance.now() - t3 };
+  return { text, lines, dropped, timing };
 }
