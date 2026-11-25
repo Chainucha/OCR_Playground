@@ -49,16 +49,41 @@
 }
 
 .drop {
+  position: relative;
   display: grid;
   place-items: center;
   min-height: 180px;
+  padding: 16px;
   border: 1px dashed var(--border-strong);
   border-radius: 8px;
   background: var(--surface);
   cursor: pointer;
-  overflow: hidden;
   color: var(--muted);
   font-size: 0.9rem;
+  text-align: center;
+}
+
+.drop[data-compact] {
+  min-height: 0;
+  padding: 12px;
+}
+
+.drop[data-dragging] {
+  border-style: solid;
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: var(--accent-surface);
+  color: var(--text);
+}
+
+.drop span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.drop small {
+  font-size: 0.8rem;
 }
 
 .drop input {
@@ -72,10 +97,193 @@
   outline-offset: 2px;
 }
 
-.drop img {
+.notices {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--danger-surface);
+  color: var(--danger);
+  font-size: 0.875rem;
+}
+
+.pages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pagesHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.pagesHeader h2 {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.pages ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 264px;
+  overflow-y: auto;
+}
+
+.pageItem {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pageSelect {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px 4px 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pageSelect[aria-current] {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.pageSelect img {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.thumb {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  background: var(--border);
+}
+
+.thumb[data-state="preparing"] {
+  background: linear-gradient(90deg, var(--border) 25%, var(--surface) 50%, var(--border) 75%) 0 0 / 300% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+.thumb[data-state="failed"] {
+  background: var(--danger-surface);
+  color: var(--danger);
+  font-weight: 700;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thumb[data-state="preparing"] {
+    animation: none;
+  }
+}
+
+.pageText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pageLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pageError {
+  font-size: 0.8rem;
+  color: var(--danger);
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.done {
+  flex: none;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.pageRemove {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pageRemove:hover {
+  background: var(--danger-surface);
+  color: var(--danger);
+}
+
+.panel button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.previewPreparing {
+  display: grid;
+  place-items: center;
+  height: 200px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.preview {
   max-width: 100%;
   max-height: 360px;
   object-fit: contain;
+  align-self: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
 }
 
 .engines {
@@ -120,6 +328,10 @@
   font-weight: 600;
 }
 
+.gt textarea:disabled {
+  opacity: 0.55;
+}
+
 .gt textarea {
   font: inherit;
   font-weight: 400;
@@ -148,6 +360,19 @@
 }
 
 .results {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.resultsTitle {
+  font-size: 1rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 16px;
