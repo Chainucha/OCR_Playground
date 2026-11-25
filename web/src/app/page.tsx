@@ -251,10 +251,9 @@ export default function Playground() {
       if (warmingUp) return "Getting engines ready…";
       return `Run ${plural(selected.size, "engine")}${readable.length > 1 ? ` on ${plural(readable.length, "page")}` : ""}`;
     }
-    const total = run.started.size + readable.filter((p) => !run.started.has(p.id)).length;
-    return run.reading
-      ? `Reading page ${run.started.size} of ${total}…`
-      : `Preparing page ${run.started.size + 1} of ${total}…`;
+    // Finished pages still in the list, plus the one in progress, so removing a page mid-run shrinks both numbers.
+    const n = readable.filter((p) => run.started.has(p.id) && p.id !== run.reading).length + 1;
+    return `${run.reading ? "Reading" : "Preparing"} page ${n} of ${Math.max(n, readable.length)}…`;
   }
 
   function summary(r: PageRun): string {
