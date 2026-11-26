@@ -7,6 +7,14 @@ const PDF_SCALE = 200 / 72; // 200 DPI
 const UNREADABLE_PDF = "Couldn't open this PDF. It may be damaged or password-protected.";
 const UNREADABLE_PAGE = "Couldn't read this page of the PDF.";
 
+let lastPageId = 0;
+
+/** Browsers offer crypto.randomUUID only on HTTPS and localhost. `scripts/dev.py --lan` serves the page over plain
+ * HTTP at a LAN IP, so there a counter stands in: page ids only need to be unique in this tab. */
+function newPageId() {
+  return typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `page-${++lastPageId}`;
+}
+
 /** One PDF being rendered. `ids` are its pages still in the list; when the last one goes, rendering stops. */
 type PdfJob = { ids: Set<string>; task?: ReturnType<typeof import("pdfjs-dist").getDocument> };
 
@@ -46,7 +54,7 @@ export function createImporter(dispatch: (e: PageEvent) => void) {
         finish(job);
         return null;
       }
-      const pageIds = [firstId, ...Array.from({ length: doc.numPages - 1 }, () => crypto.randomUUID())];
+      const pageIds = [firstId, ...Array.from({ length: doc.numPages - 1 }, newPageId)];
       for (const id of pageIds.slice(1)) {
         job.ids.add(id);
         jobs.set(id, job);
@@ -94,7 +102,7 @@ export function createImporter(dispatch: (e: PageEvent) => void) {
       const refused: string[] = [];
       const pdfs: [File, string, PdfJob][] = [];
       for (const file of files) {
-        const id = crypto.randomUUID();
+        const id = newPageId();
         if (file.type.startsWith("image/")) {
           const url = URL.createObjectURL(file);
           urls.set(id, url);

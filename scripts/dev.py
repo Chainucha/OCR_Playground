@@ -1,6 +1,7 @@
 """Local development environment with hot reload and local sign-in. No AWS account needed.
 
     python scripts/dev.py
+    python scripts/dev.py --lan    # also reachable from other machines on the network, at this machine's LAN IP
 
 Starts three processes and streams their output, prefixed by name. Ctrl+C stops everything it started.
 
@@ -11,8 +12,13 @@ Starts three processes and streams their output, prefixed by name. Ctrl+C stops 
 The engine API reads the repo-root .env when it exists (see .env.example). After an engine restart, each model
 loads again on its next page. Standard library only; the verification skill (.claude/skills/verify-ocr-playground)
 runs a separate, production-built instance on other ports, so both can run at once.
+
+With --lan, the engine API and the local Cognito proxy listen on every interface, the page calls them at the LAN IP,
+and the engine API accepts requests from that page. Windows Firewall must let python.exe and node.exe accept
+connections on private networks (ports 3000, 8000, 9229). web/next.config.ts lists the dev origins Next accepts.
 """
 
+import argparse
 import json
 import os
 import shutil
@@ -50,6 +56,13 @@ def tool(name: str) -> str:
     if not found:
         sys.exit(f"{name} not found; install Node 20+")
     return found
+
+
+def lan_ip() -> str:
+    """The address other machines on the network reach this one at: the interface the default route uses."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.connect(("10.255.255.255", 1))  # UDP: picks a route, sends nothing
+        return s.getsockname()[0]
 
 
 def port_free(port: int) -> bool:
@@ -125,6 +138,13 @@ class Stack:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Local development environment.")
+    parser.add_argument("--lan", action="store_true", help="also serve other machines on the network")
+    lan = parser.parse_args().lan
+    host = lan_ip() if lan else "127.0.0.1"
+    engine_url = f"http://{host}:{ENGINE_PORT}"
+    cors = [WEB_URL, f"http://{host}:{WEB_PORT}"] if lan else [WEB_URL]
+
     busy = [p for p in (WEB_PORT, ENGINE_PORT, COGNITO_PORT, COGNITO_PORT + 1) if not port_free(p)]
     if busy:
         sys.exit(f"Ports already in use: {busy}. Is another dev environment running?")
@@ -138,25 +158,29 @@ def main() -> None:
         cognito_json = DEV / "cognito.json"
         cognito_json.unlink(missing_ok=True)
         stack.start("cognito", [*uv(), "run", "-q", "--python", "3.12", "--with", "moto[server]", "--with", "boto3",
-                                "python", str(REPO / "scripts" / "local_cognito.py"), str(cognito_json), str(COGNITO_PORT)],
+                                "python", str(REPO / "scripts" / "local_cognito.py"), str(cognito_json), str(COGNITO_PORT),
+                                *([host] if lan else [])],
                     REPO)
         stack.wait_until("cognito", cognito_json.exists, 180)
         cognito = json.loads(cognito_json.read_text(encoding="utf-8"))
 
         env_file = ["--env-file", str(REPO / ".env")] if (REPO / ".env").exists() else []
-        stack.start("engine", [*uv(), "run", *env_file, "ocr", "serve", "--port", str(ENGINE_PORT), "--reload"],
-                    REPO / "engines", {"OCR_CORS_ORIGINS": WEB_URL})
+        stack.start("engine", [*uv(), "run", *env_file, "ocr", "serve", "--host", "0.0.0.0" if lan else "127.0.0.1",
+                                "--port", str(ENGINE_PORT), "--reload"],
+                    REPO / "engines", {"OCR_CORS_ORIGINS": ",".join(cors)})
         stack.wait_until("engine", lambda: get(f"{ENGINE_URL}/engines")[0] == 200, 120)
 
         stack.start("web", [tool("npx"), "next", "dev", "-p", str(WEB_PORT)], REPO / "web", {
-            "NEXT_PUBLIC_OCR_API_URL": ENGINE_URL,
+            "NEXT_PUBLIC_OCR_API_URL": engine_url,
             "NEXT_PUBLIC_COGNITO_ENDPOINT": cognito["endpoint"],
             "NEXT_PUBLIC_COGNITO_USER_POOL_ID": cognito["user_pool_id"],
             "NEXT_PUBLIC_COGNITO_CLIENT_ID": cognito["client_id"],
         })
         stack.wait_until("web", lambda: b"<title>OCR Playground</title>" in get(WEB_URL)[1], 180)
 
-        print(f"\nDev environment up at {WEB_URL}  (engine API {ENGINE_URL}, Cognito {cognito['endpoint']})")
+        print(f"\nDev environment up at {WEB_URL}  (engine API {engine_url}, Cognito {cognito['endpoint']})")
+        if lan:
+            print(f"Other machines on the network: http://{host}:{WEB_PORT}")
         print(f"Sign in as {cognito['email']} / {cognito['password']}. Ctrl+C stops everything.\n", flush=True)
         while (name := stack.exited()) is None:
             time.sleep(1)
