@@ -16,6 +16,10 @@ export type Line = {
   text: string;
   confidence: number | null;
   box: number[][] | null;
+  /** The line's row in reading order, where the engine reports it. */
+  row?: number;
+  /** The line's words with their boxes, where the engine reports them. */
+  words?: { text: string; confidence: number; box: number[][] }[];
 };
 
 /** One step of a run and how long it took. A result's stages don't overlap, so they add up to its time. */

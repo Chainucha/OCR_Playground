@@ -87,7 +87,7 @@ async function ocr({ file, groundTruth }: OcrRequest): Promise<Omit<Extract<OcrR
     cold,
     text: page.text,
     latency_ms,
-    lines: page.lines.map((l) => ({ text: l.text, confidence: l.confidence, box: l.box })),
+    lines: page.lines.map(({ text, confidence, box, row, words }) => ({ text, confidence, box, row, words })),
     cer: score,
     stages,
   };
